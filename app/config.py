@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     request_timeout_seconds: int = 30
     max_concurrent_requests: int = 3
     retry_attempts: int = 2
+    playwright_render_wait_seconds: int = 5
 
     debug: bool = False
     log_level: str = "INFO"

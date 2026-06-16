@@ -1,15 +1,19 @@
+import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.core.exceptions import TrackingError
 from app.routers import tracking
 from app.services import cache_service
+from app.services.scheduler_service import run_scheduler_loop
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -19,7 +23,9 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    scheduler_task = asyncio.create_task(run_scheduler_loop())
     yield
+    scheduler_task.cancel()
     await cache_service.close()
 
 
@@ -60,3 +66,7 @@ async def health() -> dict:
 
 
 app.include_router(tracking.router, prefix="/api/v1")
+
+_ui_dir = os.path.join(os.path.dirname(__file__), "static", "ui")
+if os.path.isdir(_ui_dir):
+    app.mount("/ui", StaticFiles(directory=_ui_dir, html=True), name="ui")

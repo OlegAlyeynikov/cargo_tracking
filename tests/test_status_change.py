@@ -34,7 +34,7 @@ async def test_no_previous_status_change_is_false(monkeypatch: pytest.MonkeyPatc
     assert result.status_change.changed is False
     assert result.status_change.previous_status is None
     assert result.status_change.current_status == "in_transit"
-    assert result.status_change.current_status_ua == "У транзиті"
+    assert result.status_change.current_status_ua == "Вантаж у транзиті."
 
 
 async def test_same_status_change_is_false(monkeypatch: pytest.MonkeyPatch, sample_maersk_tracking: TrackingData) -> None:
@@ -78,9 +78,9 @@ async def test_different_status_change_is_true(monkeypatch: pytest.MonkeyPatch, 
     assert result.status_change is not None
     assert result.status_change.changed is True
     assert result.status_change.previous_status == "departed"
-    assert result.status_change.previous_status_ua == "Відправлено"
+    assert result.status_change.previous_status_ua == "Вантаж або судно/рейс відправлено."
     assert result.status_change.current_status == "in_transit"
-    assert result.status_change.current_status_ua == "У транзиті"
+    assert result.status_change.current_status_ua == "Вантаж у транзиті."
 
 
 async def test_no_tracking_data_status_change_is_none() -> None:

@@ -9,9 +9,10 @@ from playwright.async_api import async_playwright
 
 from app.config import settings
 from app.connectors.base import BaseConnector
+from app.core.date_utils import normalize_date
 from app.core.exceptions import NotFoundError, SourceUnavailableError, TimeoutError
 from app.core.normalizer import normalize_status
-from app.models.response import DateBlock, LastEvent, RouteBlock, TrackingData, TrackingEvent
+from app.models.response import DateBlock, RouteBlock, TrackingData, TrackingEvent, last_event_from
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +42,14 @@ class TrackTraceAirConnector(BaseConnector):
     async def fetch(self, number: str, shipment_type: str) -> TrackingData:
         try:
             return await asyncio.wait_for(
-                _fetch(number),
+                _fetch(number, self.save_debug_html),
                 timeout=settings.request_timeout_seconds,
             )
         except asyncio.TimeoutError:
             raise TimeoutError(self.name)
 
 
-async def _fetch(number: str) -> TrackingData:
+async def _fetch(number: str, save_debug_html=None) -> TrackingData:
     carrier_url, result_type = await _resolve_carrier_url(number)
 
     if result_type == "problem" or (result_type == "url" and not carrier_url):
@@ -61,7 +62,7 @@ async def _fetch(number: str) -> TrackingData:
         )
 
     logger.info("Fetching air carrier page for %s: %s", number, carrier_url)
-    return await _scrape_with_playwright(carrier_url, number)
+    return await _scrape_with_playwright(carrier_url, number, save_debug_html)
 
 
 async def _resolve_carrier_url(number: str) -> tuple[str, str]:
@@ -93,7 +94,7 @@ async def _resolve_carrier_url(number: str) -> tuple[str, str]:
     return url, result_type
 
 
-async def _scrape_with_playwright(url: str, number: str) -> TrackingData:
+async def _scrape_with_playwright(url: str, number: str, save_debug_html=None) -> TrackingData:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         try:
@@ -113,13 +114,15 @@ async def _scrape_with_playwright(url: str, number: str) -> TrackingData:
                 )
 
             # Allow JS-rendered content to load
-            await asyncio.sleep(5)
+            await asyncio.sleep(settings.playwright_render_wait_seconds)
             html = await page.content()
         finally:
             await browser.close()
 
     events = _parse_events(html, url)
     if not events:
+        if save_debug_html:
+            save_debug_html(number, html)
         raise NotFoundError(number, "track_trace_air")
 
     # Use last event with a known status; fall back to absolute last
@@ -128,12 +131,7 @@ async def _scrape_with_playwright(url: str, number: str) -> TrackingData:
     return TrackingData(
         current_status=last.normalized_status,
         raw_status=last.event_name,
-        last_event=LastEvent(
-            event_code=last.event_code,
-            event_name=last.event_name,
-            location=last.location,
-            datetime=last.datetime,
-        ),
+        last_event=last_event_from(last),
         dates=DateBlock(),
         route=RouteBlock(),
         events=events,
@@ -183,7 +181,7 @@ def _parse_lufthansa(html: str) -> list[TrackingEvent]:
                 event_name=event_name,
                 normalized_status=normalize_status(event_name, "air_awb"),
                 location=location,
-                datetime=date_val,
+                datetime=normalize_date(date_val),
                 raw_datetime=date_val,
                 raw_text=" | ".join(c for c in cells if c),
             ))
@@ -237,7 +235,7 @@ def _parse_enxt(html: str) -> list[TrackingEvent]:
                 event_name=event_name,
                 normalized_status=normalize_status(status_code or event_name, "air_awb"),
                 location=location,
-                datetime=date_val,
+                datetime=normalize_date(date_val),
                 raw_datetime=date_val,
                 raw_text=" | ".join(c for c in clean if c),
             ))
@@ -249,37 +247,5 @@ def _parse_enxt(html: str) -> list[TrackingEvent]:
 
 
 def _parse_generic_tables(html: str) -> list[TrackingEvent]:
-    soup = BeautifulSoup(html, "html.parser")
-    events: list[TrackingEvent] = []
-
-    for table in soup.find_all("table"):
-        rows = table.find_all("tr")
-        if len(rows) < 2:
-            continue
-        for row in rows[1:]:
-            cells = [td.get_text(" ", strip=True) for td in row.find_all(["td", "th"])]
-            non_empty = [c for c in cells if c]
-            if len(non_empty) < 2:
-                continue
-
-            date_val = next((c for c in non_empty if _DATE_RE.search(c)), None)
-            desc_val = next(
-                (c for c in non_empty if not _DATE_RE.search(c) and len(c) > 3), None
-            )
-            loc_val = next(
-                (c for c in non_empty if c not in (date_val, desc_val) and len(c) > 2), None
-            )
-
-            if not desc_val:
-                continue
-
-            events.append(TrackingEvent(
-                event_name=desc_val,
-                normalized_status=normalize_status(desc_val, "air_awb"),
-                location=loc_val,
-                datetime=date_val,
-                raw_datetime=date_val,
-                raw_text=" | ".join(non_empty),
-            ))
-
-    return events
+    from app.connectors.scraping_utils import parse_generic_table_events
+    return parse_generic_table_events(html, "air_awb")

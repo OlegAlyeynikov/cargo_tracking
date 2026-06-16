@@ -1,4 +1,4 @@
-.PHONY: help install dev run test lint format clean docker-up docker-down docker-logs redis env
+.PHONY: help install dev run test lint format clean docker-up docker-down docker-logs redis env ui-install ui-build ui-dev
 
 UV := uv
 
@@ -18,6 +18,10 @@ help:
 	@echo "  make docker-down  Stop Docker Compose stack"
 	@echo "  make docker-logs  Tail Docker Compose logs"
 	@echo "  make clean        Remove cache and build artifacts"
+	@echo ""
+	@echo "  make ui-install   Install frontend npm dependencies"
+	@echo "  make ui-build     Build frontend (output: app/static/ui/)"
+	@echo "  make ui-dev       Start Vite dev server on :3000 (proxies API to :8000)"
 
 install:
 	$(UV) sync
@@ -55,6 +59,15 @@ docker-down:
 
 docker-logs:
 	docker compose logs -f
+
+ui-install:
+	cd frontend && npm install
+
+ui-build:
+	cd frontend && npm run build
+
+ui-dev:
+	cd frontend && npm run dev
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; true

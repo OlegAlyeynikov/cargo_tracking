@@ -5,9 +5,10 @@ import httpx
 
 from app.config import settings
 from app.connectors.base import BaseConnector
+from app.core.date_utils import parse_datetime_info
 from app.core.exceptions import NotFoundError, ParsingFailedError, SourceUnavailableError, TimeoutError
 from app.core.normalizer import normalize_status
-from app.models.response import DateBlock, LastEvent, RouteBlock, TrackingData, TrackingEvent
+from app.models.response import DateBlock, LastEvent, RouteBlock, TrackingData, TrackingEvent, last_event_from
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class MaerskAPIConnector(BaseConnector):
             )
 
         url = f"{_BASE}/shipments"
+        self.last_url = f"{url}?trackingNumber={number}"
         headers = {"Consumer-Key": settings.maersk_consumer_key}
 
         try:
@@ -82,12 +84,7 @@ def _parse_response(data: dict, number: str) -> TrackingData:
 
         if events:
             last = events[-1]
-            last_event = LastEvent(
-                event_code=last.event_code,
-                event_name=last.event_name,
-                location=last.location,
-                datetime=last.datetime,
-            )
+            last_event = last_event_from(last)
             raw_status = last.event_name
             current_status = normalize_status(raw_status or "", "sea_container")
 
@@ -117,13 +114,16 @@ def _parse_event(event: dict) -> TrackingEvent | None:
     if not description and not activity:
         return None
 
+    iso_dt, tz, tz_conf = parse_datetime_info(str(event_dt) if event_dt else None)
     return TrackingEvent(
         event_code=activity,
         event_name=description,
         normalized_status=normalize_status(description, "sea_container"),
         location=location,
-        datetime=_normalize_datetime(event_dt),
+        datetime=iso_dt,
         raw_datetime=str(event_dt) if event_dt else None,
+        timezone=tz,
+        timezone_confidence=tz_conf,
         raw_text=description,
         vessel=event.get("vesselName"),
         voyage=event.get("voyageNumber"),

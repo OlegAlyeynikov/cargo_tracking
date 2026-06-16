@@ -79,6 +79,40 @@ curl -X POST "http://localhost:8000/api/v1/track?debug=true" \
 The `?debug=true` parameter adds a `debug` field to each result showing every step the pipeline
 took — which connector was tried, what happened, and why.
 
+### Short format for integrations (section 8.1)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/track?short=true" \
+  -H "Content-Type: application/json" \
+  -d '{"shipments": [{"id": "internal-001", "number": "501-20285134"}]}'
+```
+
+Returns a compact response — one flat object per shipment with only the fields needed for
+internal systems: `id`, `number`, `type`, `current_status`, `eta`, `etd`, `last_event_at`,
+`source`, `errors`. The full response is always available without `?short=true`.
+
+### Webhook on status change
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/track" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shipments": [{"id": "internal-001", "number": "501-20285134"}],
+    "webhook_url": "https://your-server.com/webhook"
+  }'
+```
+
+If a shipment's status changed since the last check, a POST is sent to the webhook URL after
+the response is returned (via FastAPI `BackgroundTasks` — no delay to the client). The webhook
+body contains the shipment number, `status_change` block, and the full result object.
+
+### Web UI
+
+After `make ui-build`, a browser interface is available at `http://localhost:8000/ui/`.
+
+It lets you upload a CSV or Excel file (or paste JSON directly), run tracking, and export
+results to Excel. Webhook URL and debug mode can be toggled from the UI.
+
 ---
 
 ## Input Format
@@ -497,17 +531,31 @@ make test        # run all tests
 make test-v      # verbose output
 ```
 
-87 tests cover: number detection, status normalization, delay detection, API endpoints,
-service pipeline, and per-connector behavior (with mocks for external sources).
+133 tests cover: number detection (including ISO 6346 check digit), status normalization,
+delay detection, status change detection, Ukrainian translations, file parsing, API endpoints,
+service pipeline, quality block, and per-connector behavior (with mocks for external sources).
 
 ---
 
 ## Bonus Features Implemented
 
+All items from section 15 of the spec are implemented:
+
 - **Redis caching** — results are cached by shipment number with a configurable TTL.
   Cache is skipped silently if Redis is not available.
+- **Status change detection** — each result includes a `status_change` block comparing
+  the current status to the previous one (stored in Redis with a 7-day TTL).
+- **Webhook on status change** — pass `webhook_url` in the request body; a POST is fired
+  as a background task when `status_change.changed` is true.
 - **Delay detection** — if ETA is set and the current date is past it with no delivery,
-  `delay_detected: true` and a `risk_level` (low / medium / high) are added to the result.
+  `delay_detected: true` and `risk_level` (low / medium / high / critical) are added.
+- **Ukrainian translations** — `current_status_ua` on each result and `normalized_status_ua`
+  on each event, using the exact descriptions from section 7 of the spec.
+- **Short format** — `?short=true` returns a flat compact response for integrations (section 8.1).
+- **CSV / Excel input** — `POST /api/v1/track/file` accepts `.csv` and `.xlsx` files.
+- **Excel export** — available from the web UI via the Export Excel button.
+- **Web UI** — React + Tailwind interface at `/ui/` for file upload, JSON input, results
+  table with expandable events, and Excel export. Run `make ui-build` first.
 - **Debug mode** — `?debug=true` adds a step-by-step log to each result showing which
   connectors were tried and what happened.
 - **Semaphore limiting** — max 3 concurrent external requests to avoid overloading sources.

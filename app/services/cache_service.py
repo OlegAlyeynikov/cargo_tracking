@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 
 import redis.asyncio as aioredis
 
@@ -8,6 +9,8 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _redis: aioredis.Redis | None = None
+_unavailable_until: float = 0.0
+_RETRY_COOLDOWN_SECONDS = 30
 
 
 def _key(number: str) -> str:
@@ -19,16 +22,19 @@ def _status_key(number: str) -> str:
 
 
 async def get_client() -> aioredis.Redis | None:
-    global _redis
+    global _redis, _unavailable_until
     if _redis is not None:
         return _redis
+    if time.monotonic() < _unavailable_until:
+        return None
     try:
         _redis = aioredis.from_url(settings.redis_url, decode_responses=True)
         await _redis.ping()
         return _redis
     except Exception as exc:
-        logger.warning("Redis not available, caching disabled: %s", exc)
+        logger.warning("Redis not available, caching disabled for %ds: %s", _RETRY_COOLDOWN_SECONDS, exc)
         _redis = None
+        _unavailable_until = time.monotonic() + _RETRY_COOLDOWN_SECONDS
         return None
 
 

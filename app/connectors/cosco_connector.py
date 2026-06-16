@@ -10,7 +10,7 @@ from app.config import settings
 from app.connectors.base import BaseConnector
 from app.core.exceptions import NotFoundError, SourceUnavailableError, TimeoutError
 from app.core.normalizer import normalize_status
-from app.models.response import DateBlock, LastEvent, RouteBlock, TrackingData, TrackingEvent
+from app.models.response import DateBlock, RouteBlock, TrackingData, TrackingEvent, last_event_from
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +35,14 @@ class CoscoConnector(BaseConnector):
     async def fetch(self, number: str, shipment_type: str) -> TrackingData:
         try:
             return await asyncio.wait_for(
-                _scrape(number),
+                _scrape(number, self.save_debug_html),
                 timeout=settings.request_timeout_seconds,
             )
         except asyncio.TimeoutError:
             raise TimeoutError(self.name)
 
 
-async def _scrape(number: str) -> TrackingData:
+async def _scrape(number: str, save_debug_html=None) -> TrackingData:
     url = f"{_SCCT_BASE}?lang=en&trackingType=CNTR&number={number}"
 
     async with async_playwright() as p:
@@ -60,13 +60,13 @@ async def _scrape(number: str) -> TrackingData:
             except PlaywrightTimeout:
                 raise TimeoutError("cosco")
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(settings.playwright_render_wait_seconds // 2 or 1)
 
             # Click Search if button present
             search_btn = page.locator("button").filter(has_text="Search")
             if await search_btn.count() > 0:
                 await search_btn.first.click()
-                await asyncio.sleep(6)
+                await asyncio.sleep(settings.playwright_render_wait_seconds)
 
             html = await page.content()
         finally:
@@ -75,10 +75,14 @@ async def _scrape(number: str) -> TrackingData:
     page_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True).lower()
 
     if any(phrase in page_text for phrase in _NO_RESULTS_TEXTS):
+        if save_debug_html:
+            save_debug_html(number, html)
         raise NotFoundError(number, "cosco")
 
     events = _parse_cosco_html(html, number)
     if not events:
+        if save_debug_html:
+            save_debug_html(number, html)
         raise NotFoundError(number, "cosco")
 
     known = [e for e in events if e.normalized_status and e.normalized_status != "unknown"]
@@ -86,12 +90,7 @@ async def _scrape(number: str) -> TrackingData:
     return TrackingData(
         current_status=last.normalized_status,
         raw_status=last.event_name,
-        last_event=LastEvent(
-            event_code=last.event_code,
-            event_name=last.event_name,
-            location=last.location,
-            datetime=last.datetime,
-        ),
+        last_event=last_event_from(last),
         dates=DateBlock(),
         route=RouteBlock(),
         events=events,

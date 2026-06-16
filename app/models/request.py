@@ -15,3 +15,9 @@ class TrackingRequest(BaseModel):
         None,
         description="Optional URL to POST when a shipment status changes",
     )
+    poll_interval_minutes: int | None = Field(
+        None,
+        ge=1,
+        le=1440,
+        description="If set, re-check these shipments every N minutes and POST to webhook_url on status change",
+    )

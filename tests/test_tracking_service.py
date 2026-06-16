@@ -110,8 +110,9 @@ async def test_debug_mode_includes_steps() -> None:
     response = await tracking_service.process_request(request, include_debug=True)
     result = response.results[0]
     assert result.debug is not None
-    assert len(result.debug) > 0
-    assert result.debug[0].step == "detect_type"
+    assert result.debug.shipment_number == "MSKU1880987"
+    assert len(result.debug.steps) > 0
+    assert result.debug.steps[0].step == "detect_type"
 
 
 async def test_maersk_disabled_shows_in_debug() -> None:
@@ -119,9 +120,9 @@ async def test_maersk_disabled_shows_in_debug() -> None:
     response = await tracking_service.process_request(request, include_debug=True)
     result = response.results[0]
     assert result.debug is not None
-    step_names = [s.step for s in result.debug]
+    step_names = [s.step for s in result.debug.steps]
     assert "query_maersk_api" in step_names
-    maersk_step = next(s for s in result.debug if s.step == "query_maersk_api")
+    maersk_step = next(s for s in reversed(result.debug.steps) if s.step == "query_maersk_api")
     assert maersk_step.status == "failed"
     assert "MAERSK_API_ENABLED" in (maersk_step.error or "")
 
@@ -158,3 +159,61 @@ async def test_airfrance_awb_carrier_identified() -> None:
     assert result.detected is not None
     assert result.detected.carrier is not None
     assert result.detected.carrier.name == "Air France Cargo"
+
+
+# --- Quality block unit tests -----------------------------------------------
+
+def test_quality_confidence_range() -> None:
+    from app.models.response import DateBlock, RouteBlock, TrackingData
+    from app.services.tracking_service import _build_quality
+
+    full = TrackingData(
+        current_status="in_transit",
+        dates=DateBlock(eta="2026-06-10", etd="2026-06-01"),
+        route=RouteBlock(origin="Shanghai", destination="Hamburg"),
+        events=[],
+    )
+    # events missing → small deduction
+    q = _build_quality(full, [])
+    assert 0.0 <= q.confidence <= 1.0
+    assert "events" in q.missing_fields
+
+
+def test_quality_partial_route_warning() -> None:
+    from app.models.response import DateBlock, RouteBlock, TrackingData
+    from app.services.tracking_service import _build_quality
+
+    partial = TrackingData(
+        current_status="in_transit",
+        dates=DateBlock(eta="2026-06-10", etd="2026-06-01"),
+        route=RouteBlock(origin="Shanghai", destination=None),
+        events=[],
+    )
+    q = _build_quality(partial, [])
+    assert "partial_route" in q.warnings
+    assert "destination" in q.missing_fields
+
+
+def test_quality_invalid_check_digit_propagates() -> None:
+    from app.core.detector import detect
+    from app.models.response import DateBlock, RouteBlock, TrackingData
+    from app.services.tracking_service import _build_quality
+
+    detected = detect("MSKU1880980")  # wrong check digit
+    td = TrackingData(
+        current_status="in_transit",
+        dates=DateBlock(eta="2026-06-10", etd="2026-06-01"),
+        route=RouteBlock(origin="Shanghai", destination="Hamburg"),
+        events=[],
+    )
+    q = _build_quality(td, [], detected)
+    assert "invalid_check_digit" in q.warnings
+
+
+def test_quality_no_data_returns_zero_confidence() -> None:
+    from app.services.tracking_service import _build_quality
+
+    q = _build_quality(None, [])
+    assert q.confidence == 0.0
+    assert q.data_complete is False
+    assert "all" in q.missing_fields

@@ -4,21 +4,21 @@ from app.core.translator import translate_status
 
 
 @pytest.mark.parametrize("status,expected", [
-    ("departed", "Відправлено"),
-    ("in_transit", "У транзиті"),
-    ("arrived", "Прибуло"),
-    ("delivered", "Доставлено"),
-    ("container_picked_up", "Контейнер забрано"),
-    ("container_returned", "Контейнер повернуто"),
-    ("in_origin_terminal", "На терміналі відправлення"),
-    ("received", "Прийнято"),
-    ("customs", "Митне оформлення"),
-    ("ready_for_pickup", "Готово до видачі"),
-    ("exception", "Затримка або проблема"),
-    ("not_found", "Не знайдено"),
-    ("created", "Запис створено"),
-    ("booked", "Заброньовано"),
-    ("unknown", "Статус невідомий"),
+    ("departed", "Вантаж або судно/рейс відправлено."),
+    ("in_transit", "Вантаж у транзиті."),
+    ("arrived", "Вантаж прибув у порт / аеропорт."),
+    ("delivered", "Доставлено / видано."),
+    ("container_picked_up", "Порожній або завантажений контейнер забраний."),
+    ("container_returned", "Порожній контейнер повернуто."),
+    ("in_origin_terminal", "Вантаж на origin terminal."),
+    ("received", "Вантаж прийнято складом / авіалінією."),
+    ("customs", "Митні процедури."),
+    ("ready_for_pickup", "Готовий до отримання."),
+    ("exception", "Проблема, затримка, hold, failed event."),
+    ("not_found", "Номер валідний, але tracking-дані не знайдено."),
+    ("created", "Запис або booking створено."),
+    ("booked", "Вантаж заброньований у перевізника."),
+    ("unknown", "Статус не вдалося класифікувати."),
 ])
 def test_known_statuses_translated(status: str, expected: str) -> None:
     assert translate_status(status) == expected

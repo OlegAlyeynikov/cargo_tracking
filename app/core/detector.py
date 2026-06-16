@@ -13,6 +13,8 @@ _PREFIXES: dict[str, dict[str, str]] = json.loads(
 
 _CONTAINER_OWNERS: dict[str, str] = {
     "MSKU": "Maersk",
+    "MAEU": "Maersk",
+    "MAEI": "Maersk",
     "MSCU": "MSC",
     "CMAU": "CMA CGM",
     "HLCU": "Hapag-Lloyd",
@@ -20,11 +22,23 @@ _CONTAINER_OWNERS: dict[str, str] = {
     "EITU": "Evergreen",
     "YMLU": "Yang Ming",
     "CAIU": "COSCO",
-    "TRHU": "Triton Container International",
-    "TLLU": "Triton Container International",
+    "CBHU": "COSCO",
+    "CCLU": "COSCO",
+    "CXDU": "COSCO",
+    "FCIU": "COSCO",
+    "TRHU": "Triton International",
+    "TLLU": "Triton International",
+    "TTNU": "Triton International",
+    "TPHU": "Triton International",
+    "TGHU": "Triton International",
+    "TCKU": "Triton International",
+    "TOLU": "Touax",
     "UETU": "Textainer",
-    "TCKU": "Triton Container International",
+    "TEXU": "Textainer",
     "CRXU": "CAI International",
+    "CARU": "CAI International",
+    "BSIU": "Beacon Intermodal",
+    "LGHU": "Seaco",
 }
 
 _ISO6346_WEIGHTS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
@@ -54,13 +68,19 @@ def detect(number: str) -> DetectedInfo:
     if _AWB_PATTERN.match(normalized):
         canonical = normalized if "-" in normalized else f"{normalized[:3]}-{normalized[3:]}"
         prefix = canonical[:3]
+        serial = canonical[4:]  # 8 digits after the dash
+        awb_warnings: list[str] = []
+        if len(serial) == 8 and serial.isdigit():
+            expected = int(serial[:7]) % 7
+            if int(serial[7]) != expected:
+                awb_warnings.append("invalid_check_digit")
         carrier_data = _PREFIXES.get(prefix)
         carrier = (
             CarrierInfo(name=carrier_data["name"], code=carrier_data["code"], source="awb_prefix")
             if carrier_data
             else CarrierInfo(source="awb_prefix")
         )
-        return DetectedInfo(type="air_awb", normalized_number=canonical, carrier=carrier)
+        return DetectedInfo(type="air_awb", normalized_number=canonical, carrier=carrier, warnings=awb_warnings)
 
     if _CONTAINER_PATTERN.match(normalized):
         if not _iso6346_check_digit(normalized):
@@ -68,6 +88,6 @@ def detect(number: str) -> DetectedInfo:
         owner_code = normalized[:4]
         carrier_name = _CONTAINER_OWNERS.get(owner_code)
         carrier = CarrierInfo(name=carrier_name, code=owner_code, source="bic_prefix")
-        return DetectedInfo(type="sea_container", normalized_number=normalized, carrier=carrier)
+        return DetectedInfo(type="sea_container", normalized_number=normalized, carrier=carrier, warnings=warnings)
 
     return DetectedInfo(type="unknown", normalized_number=normalized, carrier=None)

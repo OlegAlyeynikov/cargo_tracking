@@ -79,3 +79,30 @@ def test_lowercase_input_normalized() -> None:
     result = detect("msku1880987")
     assert result.type == "sea_container"
     assert result.normalized_number == "MSKU1880987"
+
+
+def test_container_invalid_check_digit_warning() -> None:
+    # MSKU1880987 has valid check digit 7; MSKU1880980 has wrong check digit
+    result = detect("MSKU1880980")
+    assert result.type == "sea_container"
+    assert "invalid_check_digit" in result.warnings
+
+
+def test_container_valid_check_digit_no_warning() -> None:
+    result = detect("MSKU1880987")
+    assert result.type == "sea_container"
+    assert "invalid_check_digit" not in result.warnings
+
+
+def test_awb_invalid_check_digit_warning() -> None:
+    # 080-38652330: first 7 digits = 3865233, 3865233 % 7 = 1, so 0 is wrong
+    result = detect("080-38652330")
+    assert result.type == "air_awb"
+    assert "invalid_check_digit" in result.warnings
+
+
+def test_awb_valid_check_digit_no_warning() -> None:
+    # 080-38652331: check digit = 1 (correct)
+    result = detect("080-38652331")
+    assert result.type == "air_awb"
+    assert "invalid_check_digit" not in result.warnings

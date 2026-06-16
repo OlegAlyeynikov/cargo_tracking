@@ -7,12 +7,15 @@ from fastapi import BackgroundTasks
 
 from app.config import settings
 from app.core import detector, router
-from app.core.exceptions import TrackingError
+from app.core.exceptions import PartialDataError, TrackingError
+from app.core.normalizer import normalize_status_with_ai_fallback
 from app.core.translator import translate_status
 from app.models.request import ShipmentInput, TrackingRequest
 from app.models.response import (
+    DebugLog,
     DebugStep,
     DelayInfo,
+    DetectedInfo,
     ErrorBlock,
     QualityBlock,
     ShipmentResult,
@@ -32,13 +35,15 @@ _RISK_THRESHOLDS = [
     (14, "high"),
 ]
 
+_RETRYABLE = {"SOURCE_UNAVAILABLE", "TIMEOUT"}
+
 
 async def process_request(
     request: TrackingRequest,
     include_debug: bool = False,
     background_tasks: BackgroundTasks | None = None,
 ) -> TrackingResponse:
-    checked_at = datetime.now(timezone.utc).isoformat()
+    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     request_id = f"tracking-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
     semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
@@ -80,6 +85,7 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
 
     detected = detector.detect(shipment.number)
     debug_steps.append(DebugStep(step="detect_type", status="success", result=detected.type))
+    logger.info("[%s] detect_type=%s", shipment.number, detected.type)
 
     if detected.type == "unknown":
         errors.append(ErrorBlock(
@@ -90,15 +96,16 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
             input=input_dict,
             detected=detected,
             errors=errors,
-            debug=debug_steps if include_debug else None,
+            debug=DebugLog(shipment_number=shipment.number, steps=debug_steps) if include_debug else None,
         )
 
     cached = await cache_service.get_cached(detected.normalized_number)
     if cached:
         debug_steps.append(DebugStep(step="cache_lookup", status="success", result="hit"))
+        logger.info("[%s] cache=hit", shipment.number)
         result = ShipmentResult.model_validate(cached)
         if include_debug:
-            result.debug = debug_steps
+            result.debug = DebugLog(shipment_number=shipment.number, steps=debug_steps)
         return result
 
     debug_steps.append(DebugStep(step="cache_lookup", status="success", result="miss"))
@@ -108,31 +115,77 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
     final_source: str | None = None
 
     for connector in connectors:
+        connector.debug = include_debug
         step_name = f"query_{connector.name}"
-        try:
-            tracking_data = await connector.fetch(detected.normalized_number, detected.type)
-            _apply_translations(tracking_data)
-            final_source = connector.name
-            debug_steps.append(DebugStep(
-                step=step_name,
-                status="success",
-                events_count=len(tracking_data.events),
-            ))
-            break
-        except TrackingError as exc:
-            debug_steps.append(DebugStep(step=step_name, status="failed", error=exc.message))
-            errors.append(ErrorBlock(code=exc.code, message=exc.message, source=exc.source))
+        last_exc: TrackingError | None = None
 
-    quality = _build_quality(tracking_data, errors)
+        for attempt in range(1, settings.retry_attempts + 1):
+            try:
+                tracking_data = await connector.fetch(detected.normalized_number, detected.type)
+                connector_url = connector.last_url
+                debug_steps.append(DebugStep(
+                    step=step_name,
+                    status="success",
+                    result=f"attempt={attempt}",
+                    url=connector_url,
+                ))
+                logger.info("[%s] %s url=%s", shipment.number, step_name, connector_url)
+                debug_steps.append(DebugStep(
+                    step="parse_events",
+                    status="success",
+                    events_count=len(tracking_data.events),
+                ))
+                logger.info("[%s] parse_events count=%d", shipment.number, len(tracking_data.events))
+                if tracking_data.current_status in (None, "unknown") and tracking_data.raw_status:
+                    tracking_data.current_status = await normalize_status_with_ai_fallback(
+                        tracking_data.raw_status, detected.type
+                    )
+                    debug_steps.append(DebugStep(
+                        step="ai_status_normalization",
+                        status="success",
+                        result=tracking_data.current_status,
+                    ))
+                    logger.info("[%s] ai_status=%s", shipment.number, tracking_data.current_status)
+                _apply_translations(tracking_data)
+                final_source = connector.name
+                last_exc = None
+                break
+            except TrackingError as exc:
+                last_exc = exc
+                if exc.code not in _RETRYABLE or attempt == settings.retry_attempts:
+                    break
+                debug_steps.append(DebugStep(
+                    step=step_name,
+                    status="retry",
+                    result=f"attempt={attempt}",
+                    error=exc.message,
+                ))
+                logger.warning("[%s] %s retry attempt=%d: %s", shipment.number, step_name, attempt, exc.message)
+
+        if tracking_data:
+            break
+        if last_exc:
+            debug_steps.append(DebugStep(step=step_name, status="failed", error=last_exc.message))
+            logger.warning("[%s] %s failed: %s", shipment.number, step_name, last_exc.message)
+            errors.append(ErrorBlock(code=last_exc.code, message=last_exc.message, source=last_exc.source))
+
+    quality = _build_quality(tracking_data, errors, detected)
+
+    if tracking_data and quality.missing_fields and final_source:
+        partial = PartialDataError(final_source, quality.missing_fields)
+        errors.append(ErrorBlock(code=partial.code, message=partial.message, source=partial.source))
+
     delay = _compute_delay(tracking_data)
     status_change = await _detect_status_change(detected.normalized_number, tracking_data)
 
     source_block: SourceBlock | None = None
     if final_source:
+        successful_connector = next((c for c in connectors if c.name == final_source), None)
         source_block = SourceBlock(
             primary_source=connectors[0].name,
             final_source=final_source,
-            retrieved_at=datetime.now(timezone.utc).isoformat(),
+            url=successful_connector.last_url if successful_connector else None,
+            retrieved_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
 
     result = ShipmentResult(
@@ -144,7 +197,7 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
         delay=delay,
         status_change=status_change,
         errors=errors,
-        debug=debug_steps if include_debug else None,
+        debug=DebugLog(shipment_number=shipment.number, steps=debug_steps) if include_debug else None,
     )
 
     if tracking_data and not errors:
@@ -228,7 +281,11 @@ def _apply_translations(tracking_data: TrackingData) -> None:
         event.normalized_status_ua = translate_status(event.normalized_status)
 
 
-def _build_quality(tracking_data: TrackingData | None, errors: list[ErrorBlock]) -> QualityBlock:
+def _build_quality(
+    tracking_data: TrackingData | None,
+    errors: list[ErrorBlock],
+    detected: "DetectedInfo | None" = None,
+) -> QualityBlock:
     if tracking_data is None:
         return QualityBlock(confidence=0.0, data_complete=False, missing_fields=["all"])
 
@@ -244,6 +301,14 @@ def _build_quality(tracking_data: TrackingData | None, errors: list[ErrorBlock])
     if not tracking_data.events:
         missing.append("events")
 
+    warnings: list[str] = [e.code for e in errors if e.code == "PARTIAL_DATA"]
+    if detected:
+        warnings.extend(detected.warnings)
+    has_origin = bool(tracking_data.route.origin)
+    has_dest = bool(tracking_data.route.destination)
+    if has_origin != has_dest:
+        warnings.append("partial_route")
+
     has_errors = bool(errors)
     confidence = max(0.0, 1.0 - len(missing) * 0.15 - (0.3 if has_errors else 0.0))
 
@@ -251,5 +316,5 @@ def _build_quality(tracking_data: TrackingData | None, errors: list[ErrorBlock])
         confidence=round(confidence, 2),
         data_complete=not missing,
         missing_fields=missing,
-        warnings=[e.code for e in errors if e.code == "PARTIAL_DATA"],
+        warnings=warnings,
     )
