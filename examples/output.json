@@ -1,0 +1,289 @@
+{
+  "request_id": "tracking-20260616-120000-a1b2c3",
+  "checked_at": "2026-06-16T12:00:00+00:00",
+  "summary": {
+    "total": 5,
+    "success": 2,
+    "failed": 3
+  },
+  "results": [
+    {
+      "input": {
+        "id": "internal-002",
+        "number": "501-20285134"
+      },
+      "detected": {
+        "type": "air_awb",
+        "normalized_number": "501-20285134",
+        "carrier": {
+          "name": "Lufthansa Cargo",
+          "code": "LH",
+          "source": "awb_prefix"
+        }
+      },
+      "tracking": {
+        "current_status": "departed",
+        "raw_status": "Flight LH8082 - DEP",
+        "last_event": {
+          "event_code": "DEP",
+          "event_name": "Flight LH8082 - DEP",
+          "location": "VIE → WAW",
+          "datetime": "13 Jun 2026",
+          "is_actual": true
+        },
+        "dates": {
+          "etd": null,
+          "eta": null,
+          "actual_departure": null,
+          "actual_arrival": null
+        },
+        "route": {
+          "origin": null,
+          "destination": null,
+          "transit_points": []
+        },
+        "events": [
+          {
+            "event_code": "FOH",
+            "event_name": "Flight LH8474 - FOH",
+            "normalized_status": "in_origin_terminal",
+            "location": "HKG → FRA",
+            "datetime": "07 Jun 2026",
+            "raw_datetime": "07 Jun 2026",
+            "raw_text": "1 | HKG | FRA | LH | 8474 | 07 Jun 2026 | 1.331 | 197 | 1 | FOH"
+          },
+          {
+            "event_code": "FWD",
+            "event_name": "Flight LH3601 - FWD",
+            "normalized_status": "in_transit",
+            "location": "FRA → VIE",
+            "datetime": "11 Jun 2026",
+            "raw_datetime": "11 Jun 2026",
+            "raw_text": "2 | FRA | VIE | LH | 3601 | 11 Jun 2026 | 1.331 | 197 | 1 | FWD"
+          },
+          {
+            "event_code": "DEP",
+            "event_name": "Flight LH8082 - DEP",
+            "normalized_status": "departed",
+            "location": "VIE → WAW",
+            "datetime": "13 Jun 2026",
+            "raw_datetime": "13 Jun 2026",
+            "raw_text": "3 | VIE | WAW | LH | 8082 | 13 Jun 2026 | 1.331 | 197 | 1 | DEP"
+          }
+        ],
+        "delay_info": {
+          "delay_detected": false,
+          "risk_level": null,
+          "eta_original": null,
+          "checked_at": "2026-06-16T12:00:00+00:00"
+        }
+      },
+      "source": {
+        "primary_source": "track_trace_air",
+        "final_source": "track_trace_air",
+        "url": null,
+        "retrieved_at": "2026-06-16T12:00:00+00:00"
+      },
+      "quality": {
+        "confidence": 0.7,
+        "data_complete": false,
+        "missing_fields": ["etd", "eta", "actual_departure", "actual_arrival"],
+        "warnings": []
+      },
+      "errors": [],
+      "debug": null
+    },
+    {
+      "input": {
+        "id": "internal-006",
+        "number": "TLLU4912250"
+      },
+      "detected": {
+        "type": "sea_container",
+        "normalized_number": "TLLU4912250",
+        "carrier": {
+          "name": "Triton International",
+          "code": "TLLU",
+          "source": "bic_prefix"
+        }
+      },
+      "tracking": {
+        "current_status": "in_origin_terminal",
+        "raw_status": "Full Container Lease Out - On Hire (Hapag-Lloyd)",
+        "last_event": {
+          "event_code": null,
+          "event_name": "Full Container Lease Out - On Hire (Hapag-Lloyd)",
+          "location": "SGSIN",
+          "datetime": "15-Mar-2024",
+          "is_actual": true
+        },
+        "dates": {
+          "etd": null,
+          "eta": null,
+          "actual_departure": null,
+          "actual_arrival": null
+        },
+        "route": {
+          "origin": null,
+          "destination": null,
+          "transit_points": []
+        },
+        "events": [
+          {
+            "event_code": null,
+            "event_name": "Full Container Lease Out - On Hire (Hapag-Lloyd)",
+            "normalized_status": "in_origin_terminal",
+            "location": "SGSIN",
+            "datetime": "15-Mar-2024",
+            "raw_datetime": "15-Mar-2024",
+            "raw_text": "Full Container Lease Out | 15-Mar-2024 | SGSIN"
+          },
+          {
+            "event_code": null,
+            "event_name": "Full Container Lease Out - Off Hire (Hapag-Lloyd)",
+            "normalized_status": "arrived",
+            "location": "NLRTM",
+            "datetime": "02-Nov-2024",
+            "raw_datetime": "02-Nov-2024",
+            "raw_text": "Full Container Lease Out | 02-Nov-2024 | NLRTM"
+          },
+          {
+            "event_code": null,
+            "event_name": "Full Container Lease Out - On Hire (MSC)",
+            "normalized_status": "in_origin_terminal",
+            "location": "NLRTM",
+            "datetime": "18-Nov-2024",
+            "raw_datetime": "18-Nov-2024",
+            "raw_text": "Full Container Lease Out | 18-Nov-2024 | NLRTM"
+          }
+        ],
+        "delay_info": {
+          "delay_detected": false,
+          "risk_level": null,
+          "eta_original": null,
+          "checked_at": "2026-06-16T12:00:00+00:00"
+        }
+      },
+      "source": {
+        "primary_source": "track_trace_container",
+        "final_source": "track_trace_container",
+        "url": null,
+        "retrieved_at": "2026-06-16T12:00:00+00:00"
+      },
+      "quality": {
+        "confidence": 0.6,
+        "data_complete": false,
+        "missing_fields": ["etd", "eta", "actual_departure", "actual_arrival"],
+        "warnings": [
+          "Container belongs to a leasing company (Triton International). Events show interchange history, not shipping route."
+        ]
+      },
+      "errors": [],
+      "debug": null
+    },
+    {
+      "input": {
+        "id": "internal-001",
+        "number": "080-38652331"
+      },
+      "detected": {
+        "type": "air_awb",
+        "normalized_number": "080-38652331",
+        "carrier": {
+          "name": "Cathay Pacific Cargo",
+          "code": "CX",
+          "source": "awb_prefix"
+        }
+      },
+      "tracking": null,
+      "source": null,
+      "quality": {
+        "confidence": 0.0,
+        "data_complete": false,
+        "missing_fields": ["all"],
+        "warnings": []
+      },
+      "errors": [
+        {
+          "code": "NOT_FOUND",
+          "message": "Tracking data not found for '080-38652331'",
+          "source": "track_trace_air"
+        },
+        {
+          "code": "SOURCE_UNAVAILABLE",
+          "message": "Source 'carrier_fallback' is temporarily unavailable. Direct carrier integration is not yet implemented. Add a carrier-specific connector to support this number.",
+          "source": "carrier_fallback"
+        }
+      ],
+      "debug": null
+    },
+    {
+      "input": {
+        "id": "internal-009",
+        "number": "MSKU1880987"
+      },
+      "detected": {
+        "type": "sea_container",
+        "normalized_number": "MSKU1880987",
+        "carrier": {
+          "name": "Maersk",
+          "code": "MSKU",
+          "source": "bic_prefix"
+        }
+      },
+      "tracking": null,
+      "source": null,
+      "quality": {
+        "confidence": 0.0,
+        "data_complete": false,
+        "missing_fields": ["all"],
+        "warnings": []
+      },
+      "errors": [
+        {
+          "code": "SOURCE_UNAVAILABLE",
+          "message": "Source 'maersk_api' is temporarily unavailable. Disabled via MAERSK_API_ENABLED=false. Set to true and provide credentials to enable.",
+          "source": "maersk_api"
+        },
+        {
+          "code": "SOURCE_UNAVAILABLE",
+          "message": "Source 'track_trace_container' is temporarily unavailable. Maersk scraping is not supported. Enable MAERSK_API_ENABLED=true for Maersk tracking.",
+          "source": "track_trace_container"
+        },
+        {
+          "code": "SOURCE_UNAVAILABLE",
+          "message": "Source 'carrier_fallback' is temporarily unavailable. Direct carrier integration is not yet implemented.",
+          "source": "carrier_fallback"
+        }
+      ],
+      "debug": null
+    },
+    {
+      "input": {
+        "id": "invalid-001",
+        "number": "NOTANUMBER"
+      },
+      "detected": {
+        "type": "unknown",
+        "normalized_number": "NOTANUMBER",
+        "carrier": null
+      },
+      "tracking": null,
+      "source": null,
+      "quality": {
+        "confidence": 0.0,
+        "data_complete": false,
+        "missing_fields": ["all"],
+        "warnings": []
+      },
+      "errors": [
+        {
+          "code": "INVALID_FORMAT",
+          "message": "Number 'NOTANUMBER' does not match AWB or container number format",
+          "source": ""
+        }
+      ],
+      "debug": null
+    }
+  ]
+}

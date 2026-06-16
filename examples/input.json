@@ -1,0 +1,44 @@
+{
+  "shipments": [
+    {
+      "id": "internal-001",
+      "number": "080-38652331"
+    },
+    {
+      "id": "internal-002",
+      "number": "501-20285134"
+    },
+    {
+      "id": "internal-003",
+      "number": "020-26227456"
+    },
+    {
+      "id": "internal-004",
+      "number": "080-38652342"
+    },
+    {
+      "id": "internal-005",
+      "number": "080-38653985"
+    },
+    {
+      "id": "internal-006",
+      "number": "TLLU4912250"
+    },
+    {
+      "id": "internal-007",
+      "number": "CAIU7533723"
+    },
+    {
+      "id": "internal-008",
+      "number": "UETU5915440"
+    },
+    {
+      "id": "internal-009",
+      "number": "MSKU1880987"
+    },
+    {
+      "id": "internal-010",
+      "number": "TRHU6714051"
+    }
+  ]
+}
