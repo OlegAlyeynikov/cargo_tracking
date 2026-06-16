@@ -72,7 +72,7 @@ async def test_all_input_shipments_from_json_file(client: AsyncClient) -> None:
     import json
     from pathlib import Path
     root = Path(__file__).parent.parent
-    candidates = ["entry_data.json", "Вхіхні_дані_для_пошуку.json"]
+    candidates = ["examples/input.json", "entry_data.json", "Вхіхні_дані_для_пошуку.json"]
     source = next((root / f for f in candidates if (root / f).exists()), None)
     assert source is not None, f"Input JSON not found. Expected one of: {candidates}"
     data = json.loads(source.read_text())

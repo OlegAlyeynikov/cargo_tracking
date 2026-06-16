@@ -10,8 +10,10 @@ dependencies = [
     "hiredis>=3.4.0",
     "httpx>=0.28.1",
     "openai>=2.41.1",
+    "openpyxl>=3.1.5",
     "playwright>=1.60.0",
     "pydantic-settings>=2.14.1",
+    "python-multipart>=0.0.32",
     "redis>=8.0.0",
     "uvicorn>=0.49.0",
 ]

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class ShipmentInput(BaseModel):
@@ -11,3 +11,7 @@ class ShipmentInput(BaseModel):
 
 class TrackingRequest(BaseModel):
     shipments: list[ShipmentInput] = Field(..., min_length=1, max_length=50)
+    webhook_url: HttpUrl | None = Field(
+        None,
+        description="Optional URL to POST when a shipment status changes",
+    )

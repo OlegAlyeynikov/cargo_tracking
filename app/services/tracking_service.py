@@ -3,9 +3,12 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from fastapi import BackgroundTasks
+
 from app.config import settings
 from app.core import detector, router
 from app.core.exceptions import TrackingError
+from app.core.translator import translate_status
 from app.models.request import ShipmentInput, TrackingRequest
 from app.models.response import (
     DebugStep,
@@ -14,11 +17,12 @@ from app.models.response import (
     QualityBlock,
     ShipmentResult,
     SourceBlock,
+    StatusChange,
     SummaryBlock,
     TrackingData,
     TrackingResponse,
 )
-from app.services import cache_service
+from app.services import cache_service, webhook_service
 
 logger = logging.getLogger(__name__)
 
@@ -29,17 +33,34 @@ _RISK_THRESHOLDS = [
 ]
 
 
-async def process_request(request: TrackingRequest, include_debug: bool = False) -> TrackingResponse:
+async def process_request(
+    request: TrackingRequest,
+    include_debug: bool = False,
+    background_tasks: BackgroundTasks | None = None,
+) -> TrackingResponse:
     checked_at = datetime.now(timezone.utc).isoformat()
     request_id = f"tracking-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
     semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
+    webhook_url = str(request.webhook_url) if request.webhook_url else None
 
     async def bounded_track(shipment: ShipmentInput) -> ShipmentResult:
         async with semaphore:
             return await _track_one(shipment, include_debug)
 
     results = await asyncio.gather(*[bounded_track(s) for s in request.shipments])
+
+    if webhook_url and background_tasks:
+        for result in results:
+            if result.status_change and result.status_change.changed:
+                number = result.detected.normalized_number if result.detected else "unknown"
+                background_tasks.add_task(
+                    webhook_service.fire,
+                    webhook_url,
+                    number,
+                    result.status_change,
+                    result,
+                )
 
     success = sum(1 for r in results if not r.errors or all(e.code == "PARTIAL_DATA" for e in r.errors))
     failed = len(results) - success
@@ -90,6 +111,7 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
         step_name = f"query_{connector.name}"
         try:
             tracking_data = await connector.fetch(detected.normalized_number, detected.type)
+            _apply_translations(tracking_data)
             final_source = connector.name
             debug_steps.append(DebugStep(
                 step=step_name,
@@ -103,6 +125,7 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
 
     quality = _build_quality(tracking_data, errors)
     delay = _compute_delay(tracking_data)
+    status_change = await _detect_status_change(detected.normalized_number, tracking_data)
 
     source_block: SourceBlock | None = None
     if final_source:
@@ -119,6 +142,7 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
         source=source_block,
         quality=quality,
         delay=delay,
+        status_change=status_change,
         errors=errors,
         debug=debug_steps if include_debug else None,
     )
@@ -176,6 +200,32 @@ def _make_delay_info(delay_days: int) -> DelayInfo:
             return DelayInfo(delay_detected=True, delay_days=delay_days, risk_level=level)
 
     return DelayInfo(delay_detected=True, delay_days=delay_days, risk_level="critical")
+
+
+async def _detect_status_change(number: str, tracking_data: TrackingData | None) -> StatusChange | None:
+    if tracking_data is None:
+        return None
+
+    current = tracking_data.current_status
+    previous = await cache_service.get_previous_status(number)
+
+    if current:
+        await cache_service.set_previous_status(number, current)
+
+    changed = previous is not None and previous != current
+    return StatusChange(
+        changed=changed,
+        previous_status=previous,
+        previous_status_ua=translate_status(previous),
+        current_status=current,
+        current_status_ua=translate_status(current),
+    )
+
+
+def _apply_translations(tracking_data: TrackingData) -> None:
+    tracking_data.current_status_ua = translate_status(tracking_data.current_status)
+    for event in tracking_data.events:
+        event.normalized_status_ua = translate_status(event.normalized_status)
 
 
 def _build_quality(tracking_data: TrackingData | None, errors: list[ErrorBlock]) -> QualityBlock:

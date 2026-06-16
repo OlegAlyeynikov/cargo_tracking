@@ -54,6 +54,20 @@ curl -X POST http://localhost:8000/api/v1/track \
   -d @examples/input.json
 ```
 
+### Track from CSV or Excel file
+
+```bash
+curl -X POST http://localhost:8000/api/v1/track/file \
+  -F "file=@examples/input.csv"
+
+# Excel works the same way
+curl -X POST http://localhost:8000/api/v1/track/file \
+  -F "file=@examples/input.xlsx"
+```
+
+Required column: `number`. Optional: `id`, `type`, `carrier`, `comment`.
+If `id` is missing, rows are auto-numbered as `row-1`, `row-2`, etc.
+
 ### Track with debug steps visible
 
 ```bash

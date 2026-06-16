@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379/0"
     cache_ttl_seconds: int = 300
+    status_ttl_seconds: int = 604800  # 7 days — keeps status history for change detection
 
     request_timeout_seconds: int = 30
     max_concurrent_requests: int = 3

@@ -31,6 +31,7 @@ class TrackingEvent(BaseModel):
     event_code: str | None = None
     event_name: str | None = None
     normalized_status: str | None = None
+    normalized_status_ua: str | None = None
     location: str | None = None
     datetime: str | None = None
     raw_datetime: str | None = None
@@ -62,11 +63,20 @@ class LastEvent(BaseModel):
 
 class TrackingData(BaseModel):
     current_status: str | None = None
+    current_status_ua: str | None = None
     raw_status: str | None = None
     last_event: LastEvent | None = None
     dates: DateBlock = Field(default_factory=DateBlock)
     route: RouteBlock = Field(default_factory=RouteBlock)
     events: list[TrackingEvent] = Field(default_factory=list)
+
+
+class StatusChange(BaseModel):
+    changed: bool
+    previous_status: str | None = None
+    previous_status_ua: str | None = None
+    current_status: str | None = None
+    current_status_ua: str | None = None
 
 
 class SourceBlock(BaseModel):
@@ -105,6 +115,7 @@ class ShipmentResult(BaseModel):
     source: SourceBlock | None = None
     quality: QualityBlock = Field(default_factory=QualityBlock)
     delay: DelayInfo | None = None
+    status_change: StatusChange | None = None
     errors: list[ErrorBlock] = Field(default_factory=list)
     debug: list[DebugStep] | None = None
 
