@@ -848,16 +848,8 @@ When `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` is set, every OpenRouter A
 traced automatically via `langsmith.wrappers.wrap_openai`. Traces appear in your LangSmith
 dashboard grouped under `LANGSMITH_PROJECT`.
 
-Install the package first (it is an optional dependency):
-
-```bash
-uv add langsmith
-# or with the extras group:
-uv sync --extra tracing
-```
-
-If `langsmith` is not installed but the flag is set, the service logs a warning and continues
-without tracing — it does not crash.
+`langsmith` is included in the default dependencies (`uv sync` installs it).
+If the flag is set but the key is missing, the client simply skips tracing — no crash.
 
 ---
 
