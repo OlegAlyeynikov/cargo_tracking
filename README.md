@@ -19,13 +19,13 @@ and errors per shipment.
 ### Option 1 — Local (no Docker)
 
 ```bash
-cp .env.example .env
-# Fill in OPENROUTER_API_KEY if you want AI status normalization
-
-uv sync
-uv run playwright install chromium
-
-make dev
+    cp .env.example .env
+    # Fill in OPENROUTER_API_KEY if you want AI status normalization
+    
+    uv sync
+    uv run playwright install chromium
+    
+    make dev
 ```
 
 API: http://localhost:8000
@@ -37,7 +37,7 @@ Swagger docs: http://localhost:8000/docs
 ### Option 2 — Docker (everything included)
 
 ```bash
-make docker-up
+    make docker-up
 ```
 
 This starts the API and Redis together. Logs: `make docker-logs`. Stop: `make docker-down`.
@@ -52,7 +52,7 @@ to verify that everything works. All examples use `localhost:8000`.
 ### Health check
 
 ```bash
-curl http://localhost:8000/health
+    curl http://localhost:8000/health
 ```
 
 Expected:
@@ -64,27 +64,31 @@ Expected:
 
 ### 1. Basic tracking request
 
-Send a mix of AWB numbers and container numbers. The API detects the type automatically.
+Send a mix of AWB and container numbers. The API detects the type automatically.
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "air-1",  "number": "080-38652331"},
-      {"id": "air-2",  "number": "501-20285134"},
-      {"id": "sea-1",  "number": "MSKU1880987"},
-      {"id": "sea-2",  "number": "TLLU4912250"},
-      {"id": "bad-1",  "number": "NOTANUMBER"}
-    ]
-  }' | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "air-1", "number": "501-20285134"},
+          {"id": "sea-1", "number": "TRHU6714051"},
+          {"id": "sea-2", "number": "TLLU4912250"},
+          {"id": "bad-1", "number": "NOTANUMBER"}
+        ]
+      }' | jq .
 ```
 
 What to look for:
-- `detected.type` is `air_awb` or `sea_container` for valid numbers
-- `bad-1` gets `INVALID_FORMAT` in its `errors` list
-- `summary.total` is 5, `summary.success` and `summary.failed` count the results
-- Each result has a `quality` block with a `confidence` score
+- `air-1` → `detected.type: "air_awb"`, carrier Emirates SkyCargo, 2 flight events, `current_status: "departed"`
+- `sea-1` / `sea-2` → `detected.type: "sea_container"`, Triton interchange events
+- `bad-1` → `errors[0].code: "INVALID_FORMAT"`, all other fields are `null`
+- `summary`: `total: 4, success: 3, failed: 1`
+- Every successful result has a `quality` block and a `status_change` block
+
+> **About PARTIAL_DATA:** All three working shipments will have `errors[0].code: "PARTIAL_DATA"`.
+> This is expected — public tracking pages do not publish ETD/ETA. The events, current status,
+> and last event are real data. ETD/ETA are only available through carrier APIs (e.g. Maersk API).
 
 ---
 
@@ -93,33 +97,39 @@ What to look for:
 Add `?debug=true` to see exactly which connectors were tried and what happened.
 
 ```bash
-curl -s -X POST "http://localhost:8000/api/v1/track?debug=true" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "test-1", "number": "MSKU1880987"}
-    ]
-  }' | python3 -m json.tool
+    curl -s -X POST "http://localhost:8000/api/v1/track?debug=true" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "test-1", "number": "501-20285134"}
+        ]
+      }' | jq .
 ```
 
-The response will include a `debug` field on each result:
+The response includes a `debug` field on each result. Real output for `501-20285134`:
 
 ```json
-"debug": {
-  "shipment_number": "MSKU1880987",
-  "steps": [
-    {"step": "detect",        "status": "success", "result": "sea_container"},
-    {"step": "maersk_api",    "status": "failed",  "error": "disabled"},
-    {"step": "maersk_api",    "status": "retry",   "result": "attempt=2"},
-    {"step": "track_trace_container", "status": "success", "url": "https://..."},
-    {"step": "parse_events",  "status": "success", "events_count": 4}
-  ]
-}
+    "debug": {
+      "shipment_number": "501-20285134",
+      "steps": [
+        {"step": "detect_type",           "status": "success", "result": "air_awb"},
+        {"step": "cache_lookup",          "status": "success", "result": "miss"},
+        {"step": "query_track_trace_air", "status": "success", "url": null, "result": "attempt=1"},
+        {"step": "parse_events",          "status": "success", "events_count": 3}
+      ]
+    }
 ```
 
-Each step shows: which connector ran, whether it succeeded or failed, the URL it used,
-and how many events were parsed. This is the main tool for debugging why a number
-did not return data.
+To also see a connector failure chain, try a Maersk number (API disabled by default):
+
+```bash
+    curl -s -X POST "http://localhost:8000/api/v1/track?debug=true" \
+      -H "Content-Type: application/json" \
+      -d '{"shipments": [{"id": "t", "number": "MSKU1880987"}]}' | jq .
+```
+
+The steps will show `query_maersk_api → failed (disabled) → retry → failed`, then
+`query_track_trace_container → failed (Maersk scraping blocked)`, then fallback.
 
 > Without `?debug=true`, the `debug` field is not present in the response at all.
 
@@ -131,18 +141,33 @@ Add `?short=true` to get a compact flat response. Useful for systems that only n
 the current status and dates — not the full event history.
 
 ```bash
-curl -s -X POST "http://localhost:8000/api/v1/track?short=true" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "internal-001", "number": "501-20285134"},
-      {"id": "internal-002", "number": "MSKU1880987"}
-    ]
-  }' | python3 -m json.tool
+    curl -s -X POST "http://localhost:8000/api/v1/track?short=true" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "internal-001", "number": "501-20285134"},
+          {"id": "internal-002", "number": "TRHU6714051"}
+        ]
+      }' | jq .
 ```
 
 Short format returns only: `id`, `number`, `type`, `current_status`, `eta`, `etd`,
 `last_event_at`, `source`, `errors`. No events list, no quality block.
+
+Expected for `501-20285134`:
+```json
+    {
+      "id": "internal-001",
+      "number": "501-20285134",
+      "type": "air_awb",
+      "current_status": "departed",
+      "eta": null,
+      "etd": null,
+      "last_event_at": "2026-05-20",
+      "source": "track_trace_air",
+      "errors": [{"code": "PARTIAL_DATA", "message": "...", "source": "track_trace_air"}]
+    }
+```
 
 You can combine `?short=true&debug=true` if needed.
 
@@ -155,26 +180,26 @@ the API checks whether the current status is different from the last time it che
 If it changed, a POST is sent to your webhook URL in the background.
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "order-123", "number": "MSKU1880987"}
-    ],
-    "webhook_url": "https://webhook.site/your-unique-id"
-  }' | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "order-123", "number": "501-20285134"}
+        ],
+        "webhook_url": "https://webhook.site/your-unique-id"
+      }' | jq .
 ```
 
 Every result includes a `status_change` block:
 
 ```json
-"status_change": {
-  "changed": true,
-  "previous_status": "in_transit",
-  "previous_status_ua": "Вантаж у транзиті.",
-  "current_status": "arrived",
-  "current_status_ua": "Вантаж прибув у порт / аеропорт."
-}
+    "status_change": {
+      "changed": true,
+      "previous_status": "in_transit",
+      "previous_status_ua": "Вантаж у транзиті.",
+      "current_status": "arrived",
+      "current_status_ua": "Вантаж прибув у порт / аеропорт."
+    }
 ```
 
 If `changed` is `false`, the webhook is not called. Previous status is kept in Redis
@@ -190,15 +215,15 @@ Pass `poll_interval_minutes` to register a subscription. The API runs tracking f
 shipments automatically every N minutes and calls the webhook if anything changes.
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "order-456", "number": "MSKU1880987"}
-    ],
-    "webhook_url": "https://webhook.site/your-unique-id",
-    "poll_interval_minutes": 60
-  }' | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "order-456", "number": "501-20285134"}
+        ],
+        "webhook_url": "https://webhook.site/your-unique-id",
+        "poll_interval_minutes": 60
+      }' | jq .
 ```
 
 The response is the same as a normal tracking response. In the background, a subscription
@@ -209,7 +234,7 @@ Subscriptions expire automatically after 7 days with no re-runs (Redis TTL).
 **List all active subscriptions:**
 
 ```bash
-curl -s http://localhost:8000/api/v1/track/schedules | python3 -m json.tool
+    curl -s http://localhost:8000/api/v1/track/schedules | jq .
 ```
 
 Returns a list of subscription objects. Each one shows the shipments, webhook URL,
@@ -220,7 +245,7 @@ interval in seconds, and when the next run is scheduled.
 Use the `request_id` from the tracking response (field `request_id` at the top level).
 
 ```bash
-curl -s -X DELETE http://localhost:8000/api/v1/track/schedule/tracking-20260616-120000-abc123
+    curl -s -X DELETE http://localhost:8000/api/v1/track/schedule/tracking-20260616-120000-abc123
 ```
 
 Returns `{"cancelled": "tracking-20260616-120000-abc123"}` on success.
@@ -236,13 +261,13 @@ are optional. If `id` is missing, rows are numbered `row-1`, `row-2`, etc.
 Example CSV:
 ```
 id,number,comment
-air-1,080-38652331,first AWB
-sea-1,MSKU1880987,Maersk container
+air-1,501-20285134,Emirates SkyCargo AWB
+sea-1,TRHU6714051,Triton container
 ```
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track/file \
-  -F "file=@examples/input.csv" | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track/file \
+      -F "file=@examples/input.csv" | jq .
 ```
 
 ---
@@ -253,15 +278,14 @@ Same format as CSV, just in an Excel file. The first sheet is used. Column names
 match: `number`, `id`, `type`, `carrier`, `comment`.
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track/file \
-  -F "file=@examples/input.xlsx" | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track/file -F "file=@examples/input.xlsx" | jq .
 ```
 
 You can also combine with `?debug=true` or `?short=true`:
 
 ```bash
-curl -s -X POST "http://localhost:8000/api/v1/track/file?debug=true" \
-  -F "file=@examples/input.csv" | python3 -m json.tool
+    curl -s -X POST "http://localhost:8000/api/v1/track/file?debug=true" \
+      -F "file=@examples/input.csv" | jq .
 ```
 
 ---
@@ -280,13 +304,13 @@ MAERSK_CLIENT_SECRET=your_secret
 Then test with a real MSKU number:
 
 ```bash
-curl -s -X POST "http://localhost:8000/api/v1/track?debug=true" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "maersk-test", "number": "MSKU1880987"}
-    ]
-  }' | python3 -m json.tool
+    curl -s -X POST "http://localhost:8000/api/v1/track?debug=true" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "maersk-test", "number": "MSKU1880987"}
+        ]
+      }' | jq .
 ```
 
 With the API enabled, `debug.steps` will show `maersk_api` with `"status": "success"` instead
@@ -300,13 +324,13 @@ Containers from leasing companies (UETU, TEXU, TTNU, TGHU, etc.) are not operate
 shipping lines, so there is no route to track. The API explains this clearly.
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "lease-1", "number": "UETU1234565"}
-    ]
-  }' | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "lease-1", "number": "UETU1234565"}
+        ]
+      }' | jq .
 ```
 
 Expected: `errors[0].code` is `SOURCE_UNAVAILABLE` with a message explaining that
@@ -317,14 +341,14 @@ this is a Textainer container and you need the shipping line's bill of lading to
 ### 10. Invalid number format
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "bad-1", "number": "NOTANUMBER"},
-      {"id": "bad-2", "number": "12345"}
-    ]
-  }' | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "bad-1", "number": "NOTANUMBER"},
+          {"id": "bad-2", "number": "12345"}
+        ]
+      }' | jq .
 ```
 
 Expected: both get `INVALID_FORMAT` in `errors`. The `detected` field is `null`.
@@ -337,33 +361,36 @@ Other shipments in the same request are not affected.
 ISO 6346 check digit validation runs on all container numbers. A wrong check digit
 does not block processing — it adds a warning to the `quality` block.
 
+`TLLU4912250` has a confirmed invalid check digit — use it to verify this feature:
+
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "warn-1", "number": "MSKU1880980"}
-    ]
-  }' | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "warn-1", "number": "TLLU4912250"}
+        ]
+      }' | jq .
 ```
 
-Look for `quality.warnings` containing `"invalid_check_digit"`.
+Look for `quality.warnings` containing `"invalid_check_digit"`. The tracking still runs
+and returns events — the warning is informational only.
 
-The same works for AWB numbers — the 8th digit (modulo-7 of the first 7) is validated.
+The same validation applies to AWB numbers — the 8th digit must equal (first 7 digits) mod 7.
 
 ---
 
 ### 12. Air France / KLM — expected LOGIN_REQUIRED
 
 ```bash
-curl -s -X POST http://localhost:8000/api/v1/track \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shipments": [
-      {"id": "af-1", "number": "074-12345678"},
-      {"id": "klm-1", "number": "076-12345678"}
-    ]
-  }' | python3 -m json.tool
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "af-1", "number": "074-12345678"},
+          {"id": "klm-1", "number": "076-12345678"}
+        ]
+      }' | jq .
 ```
 
 Expected: `errors[0].code` is `LOGIN_REQUIRED`. This is not a bug — their tracking API
@@ -371,22 +398,73 @@ requires OAuth credentials and is protected by Akamai Bot Manager.
 
 ---
 
+### 13. Test AI status normalization
+
+Use `POST /api/v1/track/normalize` to verify that `OPENROUTER_API_KEY` works and the
+model classifies statuses correctly — without running a full tracking request.
+
+**Dictionary hit (no AI call):**
+
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track/normalize \
+      -H "Content-Type: application/json" \
+      -d '{"raw_status": "Flight LH8082 - DEP", "shipment_type": "air_awb"}' | jq .
+```
+
+```json
+    {
+      "raw_status": "Flight LH8082 - DEP",
+      "normalized_status": "departed",
+      "method": "dictionary",
+      "ai_enabled": true
+    }
+```
+
+**AI fallback (status not in dictionary):**
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/track/normalize \
+  -H "Content-Type: application/json" \
+  -d '{"raw_status": "Consignment is being palletized at origin hub", "shipment_type": "air_awb"}' | jq .
+```
+
+```json
+    {
+      "raw_status": "Consignment is being palletized at origin hub",
+      "normalized_status": "in_origin_terminal",
+      "method": "ai_fallback",
+      "ai_enabled": true
+    }
+```
+
+`method` tells you which path was taken:
+
+| `method` | Meaning |
+|----------|---------|
+| `dictionary` | Matched a known phrase — no AI call was made |
+| `ai_fallback` | Dictionary returned `unknown`, AI classified it |
+| `unknown` | Dictionary miss and either AI key not set or model returned nothing useful |
+
+If `ai_enabled: false`, set `OPENROUTER_API_KEY` in `.env` and restart.
+
+---
+
 ## Input Format
 
 ```json
-{
-  "shipments": [
     {
-      "id": "internal-001",
-      "number": "080-38652331",
-      "type": "air_awb",
-      "carrier": "CX",
-      "comment": "optional note"
+      "shipments": [
+        {
+          "id": "internal-001",
+          "number": "080-38652331",
+          "type": "air_awb",
+          "carrier": "CX",
+          "comment": "optional note"
+        }
+      ],
+      "webhook_url": "https://your-server.com/webhook",
+      "poll_interval_minutes": 30
     }
-  ],
-  "webhook_url": "https://your-server.com/webhook",
-  "poll_interval_minutes": 30
-}
 ```
 
 | Field | Required | Description |
@@ -808,8 +886,8 @@ class YourCarrierConnector(BaseConnector):
 ## Running Tests
 
 ```bash
-make test        # run all tests
-make test-v      # verbose output
+    make test        # run all tests
+    make test-v      # verbose output
 ```
 
 133 tests cover: number detection (including ISO 6346 and AWB check digit), status normalization,

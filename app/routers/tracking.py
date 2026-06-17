@@ -1,8 +1,11 @@
 import logging
-from typing import Union
+from typing import Literal, Union
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 
+from app.config import settings
+from app.core.normalizer import normalize_status, normalize_status_with_ai_fallback
 from app.models.request import TrackingRequest
 from app.models.response import TrackingResponse, TrackingResponseShort, to_short
 from app.services import scheduler_service, tracking_service
@@ -97,3 +100,44 @@ async def cancel_poll_subscription(request_id: str) -> dict:
 async def list_poll_subscriptions() -> list[dict]:
     """List all active periodic re-check subscriptions."""
     return await scheduler_service.list_subscriptions()
+
+
+class NormalizeRequest(BaseModel):
+    raw_status: str
+    shipment_type: Literal["air_awb", "sea_container"] = "air_awb"
+
+
+class NormalizeResponse(BaseModel):
+    raw_status: str
+    normalized_status: str
+    method: Literal["dictionary", "ai_fallback", "unknown"]
+    ai_enabled: bool
+
+
+@router.post("/normalize", tags=["debug"], response_model=NormalizeResponse)
+async def normalize_status_endpoint(body: NormalizeRequest) -> NormalizeResponse:
+    """Test status normalization directly — dictionary lookup first, then AI fallback.
+
+    Useful for verifying that OPENROUTER_API_KEY works and the AI model classifies
+    statuses correctly. Statuses already in our dictionary never reach the AI.
+    To force AI fallback, send a status that is not in our dictionary.
+    """
+    dict_result = normalize_status(body.raw_status, body.shipment_type)
+    ai_enabled = bool(settings.openrouter_api_key)
+
+    if dict_result != "unknown":
+        return NormalizeResponse(
+            raw_status=body.raw_status,
+            normalized_status=dict_result,
+            method="dictionary",
+            ai_enabled=ai_enabled,
+        )
+
+    final = await normalize_status_with_ai_fallback(body.raw_status, body.shipment_type)
+    method = "ai_fallback" if (ai_enabled and final != "unknown") else "unknown"
+    return NormalizeResponse(
+        raw_status=body.raw_status,
+        normalized_status=final,
+        method=method,
+        ai_enabled=ai_enabled,
+    )
