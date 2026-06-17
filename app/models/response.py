@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any, Callable
 from pydantic import BaseModel, Field, model_serializer
 
@@ -142,7 +141,9 @@ class ShipmentResult(BaseModel):
     debug: DebugLog | None = None
 
     @model_serializer(mode="wrap")
-    def _serialize(self, handler: Callable[["ShipmentResult"], dict[str, Any]]) -> dict[str, Any]:
+    def _serialize(
+        self, handler: Callable[["ShipmentResult"], dict[str, Any]]
+    ) -> dict[str, Any]:
         data = handler(self)
         if data.get("debug") is None:
             data.pop("debug", None)
@@ -194,7 +195,9 @@ def to_short(result: "ShipmentResult") -> ShipmentResultShort:
         current_status=tracking.current_status if tracking else None,
         eta=tracking.dates.eta if tracking else None,
         etd=tracking.dates.etd if tracking else None,
-        last_event_at=tracking.last_event.datetime if tracking and tracking.last_event else None,
+        last_event_at=tracking.last_event.datetime
+        if tracking and tracking.last_event
+        else None,
         source=source.final_source if source else None,
         errors=result.errors,
     )

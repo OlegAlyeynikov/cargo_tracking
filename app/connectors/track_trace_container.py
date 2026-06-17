@@ -10,8 +10,13 @@ from app.config import settings
 from app.connectors.base import BaseConnector
 from app.core.date_utils import normalize_date
 from app.core.exceptions import NotFoundError, SourceUnavailableError, TimeoutError
-from app.core.normalizer import normalize_status
-from app.models.response import DateBlock, RouteBlock, TrackingData, TrackingEvent, last_event_from
+from app.models.response import (
+    DateBlock,
+    RouteBlock,
+    TrackingData,
+    TrackingEvent,
+    last_event_from,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +74,9 @@ async def _fetch(number: str, save_debug_html=None) -> TrackingData:
 
 async def _resolve_carrier_url(number: str) -> tuple[str, str]:
     try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=settings.request_timeout_seconds
+        ) as client:
             response = await client.post(
                 _TRACK_FORM_URL,
                 content=f"number={number}&config=206100",
@@ -89,7 +96,9 @@ async def _resolve_carrier_url(number: str) -> tuple[str, str]:
     result_type = ""
     if direct_type_el:
         span = direct_type_el.find("span")
-        result_type = span.get_text(strip=True) if span else direct_type_el.get_text(strip=True)
+        result_type = (
+            span.get_text(strip=True) if span else direct_type_el.get_text(strip=True)
+        )
 
     logger.info("track-trace resolve %s: type=%r url=%.80s", number, result_type, url)
     return url, result_type
@@ -100,7 +109,9 @@ async def _resolve_carrier_url(number: str) -> tuple[str, str]:
 
 async def _scrape_triton_httpx(url: str, number: str) -> TrackingData:
     try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=settings.request_timeout_seconds, follow_redirects=True
+        ) as client:
             response = await client.get(
                 url,
                 headers={"User-Agent": _HEADERS["User-Agent"]},
@@ -175,6 +186,7 @@ def _parse_triton_table(html: str, number: str) -> list[TrackingEvent]:
     indexed: list[tuple[int, TrackingEvent]] = []
 
     for col_idx in range(num_events):
+
         def _val(label: str, idx: int = col_idx) -> str:
             vals = field_map.get(label, [])
             return vals[idx] if idx < len(vals) else ""
@@ -198,27 +210,41 @@ def _parse_triton_table(html: str, number: str) -> list[TrackingEvent]:
             event_name = f"{interchange_type} - On Hire"
             if customer:
                 event_name += f" ({customer})"
-            indexed.append((seq, TrackingEvent(
-                event_name=event_name,
-                normalized_status=_map_triton_status(interchange_type, "on_hire"),
-                location=on_hire_port or None,
-                datetime=normalize_date(on_hire_date),
-                raw_datetime=on_hire_date,
-                raw_text=f"{interchange_type} | {on_hire_date} | {on_hire_port}",
-            )))
+            indexed.append(
+                (
+                    seq,
+                    TrackingEvent(
+                        event_name=event_name,
+                        normalized_status=_map_triton_status(
+                            interchange_type, "on_hire"
+                        ),
+                        location=on_hire_port or None,
+                        datetime=normalize_date(on_hire_date),
+                        raw_datetime=on_hire_date,
+                        raw_text=f"{interchange_type} | {on_hire_date} | {on_hire_port}",
+                    ),
+                )
+            )
 
         if off_hire_date:
             event_name = f"{interchange_type} - Off Hire"
             if customer:
                 event_name += f" ({customer})"
-            indexed.append((seq, TrackingEvent(
-                event_name=event_name,
-                normalized_status=_map_triton_status(interchange_type, "off_hire"),
-                location=off_hire_port or None,
-                datetime=normalize_date(off_hire_date),
-                raw_datetime=off_hire_date,
-                raw_text=f"{interchange_type} | {off_hire_date} | {off_hire_port}",
-            )))
+            indexed.append(
+                (
+                    seq,
+                    TrackingEvent(
+                        event_name=event_name,
+                        normalized_status=_map_triton_status(
+                            interchange_type, "off_hire"
+                        ),
+                        location=off_hire_port or None,
+                        datetime=normalize_date(off_hire_date),
+                        raw_datetime=off_hire_date,
+                        raw_text=f"{interchange_type} | {off_hire_date} | {off_hire_port}",
+                    ),
+                )
+            )
 
     indexed.sort(key=lambda x: x[0])
     return [ev for _, ev in indexed]
@@ -241,7 +267,9 @@ def _map_triton_status(interchange_type: str, phase: str) -> str:
 # --- generic Playwright scraping ----------------------------------------
 
 
-async def _scrape_with_playwright(url: str, number: str, save_debug_html=None) -> TrackingData:
+async def _scrape_with_playwright(
+    url: str, number: str, save_debug_html=None
+) -> TrackingData:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         try:
@@ -253,7 +281,11 @@ async def _scrape_with_playwright(url: str, number: str, save_debug_html=None) -
             )
 
             try:
-                nav_response = await page.goto(url, timeout=settings.request_timeout_seconds * 1000, wait_until="domcontentloaded")
+                nav_response = await page.goto(
+                    url,
+                    timeout=settings.request_timeout_seconds * 1000,
+                    wait_until="domcontentloaded",
+                )
             except PlaywrightTimeout:
                 raise TimeoutError("track_trace_container")
 
@@ -287,4 +319,5 @@ async def _scrape_with_playwright(url: str, number: str, save_debug_html=None) -
 
 def _parse_generic_tables(html: str) -> list[TrackingEvent]:
     from app.connectors.scraping_utils import parse_generic_table_events
+
     return parse_generic_table_events(html, "sea_container")

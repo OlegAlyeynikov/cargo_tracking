@@ -8,9 +8,15 @@ from playwright.async_api import async_playwright
 
 from app.config import settings
 from app.connectors.base import BaseConnector
-from app.core.exceptions import NotFoundError, SourceUnavailableError, TimeoutError
+from app.core.exceptions import NotFoundError, TimeoutError
 from app.core.normalizer import normalize_status
-from app.models.response import DateBlock, RouteBlock, TrackingData, TrackingEvent, last_event_from
+from app.models.response import (
+    DateBlock,
+    RouteBlock,
+    TrackingData,
+    TrackingEvent,
+    last_event_from,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +62,11 @@ async def _scrape(number: str, save_debug_html=None) -> TrackingData:
             )
 
             try:
-                await page.goto(url, timeout=settings.request_timeout_seconds * 1000, wait_until="networkidle")
+                await page.goto(
+                    url,
+                    timeout=settings.request_timeout_seconds * 1000,
+                    wait_until="networkidle",
+                )
             except PlaywrightTimeout:
                 raise TimeoutError("cosco")
 
@@ -85,7 +95,9 @@ async def _scrape(number: str, save_debug_html=None) -> TrackingData:
             save_debug_html(number, html)
         raise NotFoundError(number, "cosco")
 
-    known = [e for e in events if e.normalized_status and e.normalized_status != "unknown"]
+    known = [
+        e for e in events if e.normalized_status and e.normalized_status != "unknown"
+    ]
     last = known[-1] if known else events[-1]
     return TrackingData(
         current_status=last.normalized_status,
@@ -102,7 +114,9 @@ def _parse_cosco_html(html: str, number: str) -> list[TrackingEvent]:
     events: list[TrackingEvent] = []
 
     # Try milestone/step elements first (COSCO uses card-based UI)
-    for el in soup.find_all(attrs={"class": re.compile(r"milestone|step|event|track", re.I)}):
+    for el in soup.find_all(
+        attrs={"class": re.compile(r"milestone|step|event|track", re.I)}
+    ):
         text = el.get_text(" ", strip=True)
         if not text or len(text) < 5:
             continue
@@ -111,13 +125,15 @@ def _parse_cosco_html(html: str, number: str) -> list[TrackingEvent]:
         desc = text.replace(date_val, "").strip() if date_val else text
         if not desc:
             continue
-        events.append(TrackingEvent(
-            event_name=desc[:200],
-            normalized_status=normalize_status(desc, "sea_container"),
-            datetime=date_val,
-            raw_datetime=date_val,
-            raw_text=text[:300],
-        ))
+        events.append(
+            TrackingEvent(
+                event_name=desc[:200],
+                normalized_status=normalize_status(desc, "sea_container"),
+                datetime=date_val,
+                raw_datetime=date_val,
+                raw_text=text[:300],
+            )
+        )
 
     if events:
         return events
@@ -137,17 +153,20 @@ def _parse_cosco_html(html: str, number: str) -> list[TrackingEvent]:
                 (c for c in non_empty if not _DATE_RE.search(c) and len(c) > 3), None
             )
             loc_val = next(
-                (c for c in non_empty if c not in (date_val, desc_val) and len(c) > 2), None
+                (c for c in non_empty if c not in (date_val, desc_val) and len(c) > 2),
+                None,
             )
             if not desc_val:
                 continue
-            events.append(TrackingEvent(
-                event_name=desc_val,
-                normalized_status=normalize_status(desc_val, "sea_container"),
-                location=loc_val,
-                datetime=date_val,
-                raw_datetime=date_val,
-                raw_text=" | ".join(non_empty),
-            ))
+            events.append(
+                TrackingEvent(
+                    event_name=desc_val,
+                    normalized_status=normalize_status(desc_val, "sea_container"),
+                    location=loc_val,
+                    datetime=date_val,
+                    raw_datetime=date_val,
+                    raw_text=" | ".join(non_empty),
+                )
+            )
 
     return events

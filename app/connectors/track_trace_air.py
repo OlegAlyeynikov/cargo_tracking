@@ -12,7 +12,13 @@ from app.connectors.base import BaseConnector
 from app.core.date_utils import normalize_date
 from app.core.exceptions import NotFoundError, SourceUnavailableError, TimeoutError
 from app.core.normalizer import normalize_status
-from app.models.response import DateBlock, RouteBlock, TrackingData, TrackingEvent, last_event_from
+from app.models.response import (
+    DateBlock,
+    RouteBlock,
+    TrackingData,
+    TrackingEvent,
+    last_event_from,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +73,9 @@ async def _fetch(number: str, save_debug_html=None) -> TrackingData:
 
 async def _resolve_carrier_url(number: str) -> tuple[str, str]:
     try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=settings.request_timeout_seconds
+        ) as client:
             response = await client.post(
                 _TRACK_FORM_URL,
                 content=f"number={number}&config=206100",
@@ -86,15 +94,21 @@ async def _resolve_carrier_url(number: str) -> tuple[str, str]:
     url = form_el.get_text(strip=True) if form_el else ""
     if type_el:
         span = type_el.find("span")
-        result_type = span.get_text(strip=True) if span else type_el.get_text(strip=True)
+        result_type = (
+            span.get_text(strip=True) if span else type_el.get_text(strip=True)
+        )
     else:
         result_type = ""
 
-    logger.info("track-trace air resolve %s: type=%r url=%.80s", number, result_type, url)
+    logger.info(
+        "track-trace air resolve %s: type=%r url=%.80s", number, result_type, url
+    )
     return url, result_type
 
 
-async def _scrape_with_playwright(url: str, number: str, save_debug_html=None) -> TrackingData:
+async def _scrape_with_playwright(
+    url: str, number: str, save_debug_html=None
+) -> TrackingData:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         try:
@@ -103,7 +117,11 @@ async def _scrape_with_playwright(url: str, number: str, save_debug_html=None) -
             )
 
             try:
-                nav_response = await page.goto(url, timeout=settings.request_timeout_seconds * 1000, wait_until="domcontentloaded")
+                nav_response = await page.goto(
+                    url,
+                    timeout=settings.request_timeout_seconds * 1000,
+                    wait_until="domcontentloaded",
+                )
             except PlaywrightTimeout:
                 raise TimeoutError("track_trace_air")
 
@@ -126,7 +144,9 @@ async def _scrape_with_playwright(url: str, number: str, save_debug_html=None) -
         raise NotFoundError(number, "track_trace_air")
 
     # Use last event with a known status; fall back to absolute last
-    known = [e for e in events if e.normalized_status and e.normalized_status != "unknown"]
+    known = [
+        e for e in events if e.normalized_status and e.normalized_status != "unknown"
+    ]
     last = known[-1] if known else events[-1]
     return TrackingData(
         current_status=last.normalized_status,
@@ -154,7 +174,9 @@ def _parse_lufthansa(html: str) -> list[TrackingEvent]:
         rows = table.find_all("tr")
         if len(rows) < 2:
             continue
-        headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
+        headers = [
+            th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])
+        ]
         for row in rows[1:]:
             cells = [td.get_text(" ", strip=True) for td in row.find_all(["td", "th"])]
             if not cells or not any(cells):
@@ -165,7 +187,9 @@ def _parse_lufthansa(html: str) -> list[TrackingEvent]:
                 event_map.get("event")
                 or event_map.get("status")
                 or event_map.get("description")
-                or next((c for c in cells if len(c) > 3 and not _DATE_RE.search(c)), None)
+                or next(
+                    (c for c in cells if len(c) > 3 and not _DATE_RE.search(c)), None
+                )
             )
             date_val = (
                 event_map.get("date")
@@ -177,14 +201,16 @@ def _parse_lufthansa(html: str) -> list[TrackingEvent]:
             if not event_name:
                 continue
 
-            events.append(TrackingEvent(
-                event_name=event_name,
-                normalized_status=normalize_status(event_name, "air_awb"),
-                location=location,
-                datetime=normalize_date(date_val),
-                raw_datetime=date_val,
-                raw_text=" | ".join(c for c in cells if c),
-            ))
+            events.append(
+                TrackingEvent(
+                    event_name=event_name,
+                    normalized_status=normalize_status(event_name, "air_awb"),
+                    location=location,
+                    datetime=normalize_date(date_val),
+                    raw_datetime=date_val,
+                    raw_text=" | ".join(c for c in cells if c),
+                )
+            )
 
     return events
 
@@ -202,8 +228,12 @@ def _parse_enxt(html: str) -> list[TrackingEvent]:
         rows = table.find_all("tr")
         if len(rows) < 2:
             continue
-        headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
-        if "flight nr" not in " ".join(headers) and "flight_takeoff" not in " ".join(headers):
+        headers = [
+            th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])
+        ]
+        if "flight nr" not in " ".join(headers) and "flight_takeoff" not in " ".join(
+            headers
+        ):
             continue
 
         events: list[TrackingEvent] = []
@@ -222,23 +252,33 @@ def _parse_enxt(html: str) -> list[TrackingEvent]:
             dest = clean[2] if len(clean) > 2 else None
             carrier = clean[3] if len(clean) > 3 else None
             flight_nr = clean[4] if len(clean) > 4 else None
-            date_val = clean[5] if len(clean) > 5 and _DATE_RE.search(clean[5]) else None
+            date_val = (
+                clean[5] if len(clean) > 5 and _DATE_RE.search(clean[5]) else None
+            )
             status_code = clean[9] if len(clean) > 9 else None
 
-            event_name = f"Flight {carrier}{flight_nr}" if carrier and flight_nr else "Flight leg"
+            event_name = (
+                f"Flight {carrier}{flight_nr}"
+                if carrier and flight_nr
+                else "Flight leg"
+            )
             if status_code:
                 event_name += f" - {status_code}"
             location = f"{origin} → {dest}" if origin and dest else None
 
-            events.append(TrackingEvent(
-                event_code=status_code,
-                event_name=event_name,
-                normalized_status=normalize_status(status_code or event_name, "air_awb"),
-                location=location,
-                datetime=normalize_date(date_val),
-                raw_datetime=date_val,
-                raw_text=" | ".join(c for c in clean if c),
-            ))
+            events.append(
+                TrackingEvent(
+                    event_code=status_code,
+                    event_name=event_name,
+                    normalized_status=normalize_status(
+                        status_code or event_name, "air_awb"
+                    ),
+                    location=location,
+                    datetime=normalize_date(date_val),
+                    raw_datetime=date_val,
+                    raw_text=" | ".join(c for c in clean if c),
+                )
+            )
 
         if events:
             return events
@@ -248,4 +288,5 @@ def _parse_enxt(html: str) -> list[TrackingEvent]:
 
 def _parse_generic_tables(html: str) -> list[TrackingEvent]:
     from app.connectors.scraping_utils import parse_generic_table_events
+
     return parse_generic_table_events(html, "air_awb")

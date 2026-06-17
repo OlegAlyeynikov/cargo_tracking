@@ -32,7 +32,11 @@ async def get_client() -> aioredis.Redis | None:
         await _redis.ping()
         return _redis
     except Exception as exc:
-        logger.warning("Redis not available, caching disabled for %ds: %s", _RETRY_COOLDOWN_SECONDS, exc)
+        logger.warning(
+            "Redis not available, caching disabled for %ds: %s",
+            _RETRY_COOLDOWN_SECONDS,
+            exc,
+        )
         _redis = None
         _unavailable_until = time.monotonic() + _RETRY_COOLDOWN_SECONDS
         return None

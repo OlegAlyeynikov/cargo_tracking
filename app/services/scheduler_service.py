@@ -27,7 +27,9 @@ async def save_subscription(
 ) -> None:
     client = await cache_service.get_client()
     if client is None:
-        logger.warning("Redis unavailable — cannot persist poll subscription %s", request_id)
+        logger.warning(
+            "Redis unavailable — cannot persist poll subscription %s", request_id
+        )
         return
 
     now = datetime.now(timezone.utc).timestamp()
@@ -39,9 +41,13 @@ async def save_subscription(
         "next_run_at": now + interval_minutes * 60,
     }
     key = f"{_SCHEDULE_PREFIX}{request_id}"
-    ttl = interval_minutes * 60 * 24 * 7  # auto-expire subscriptions after 7 days of inactivity
+    ttl = (
+        interval_minutes * 60 * 24 * 7
+    )  # auto-expire subscriptions after 7 days of inactivity
     await client.set(key, json.dumps(payload), ex=ttl)
-    logger.info("Scheduled poll every %d min for request %s", interval_minutes, request_id)
+    logger.info(
+        "Scheduled poll every %d min for request %s", interval_minutes, request_id
+    )
 
 
 async def cancel_subscription(request_id: str) -> bool:

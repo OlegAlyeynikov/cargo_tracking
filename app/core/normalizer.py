@@ -116,7 +116,9 @@ async def normalize_status_with_ai_fallback(raw_status: str, shipment_type: str)
 
     client = _get_client()
     if client is None:
-        logger.warning("OpenRouter API key not set, cannot use AI fallback for status normalization")
+        logger.warning(
+            "OpenRouter API key not set, cannot use AI fallback for status normalization"
+        )
         return "unknown"
 
     prompt = _build_normalization_prompt(raw_status, shipment_type)
@@ -143,7 +145,7 @@ def _build_normalization_prompt(raw_status: str, shipment_type: str) -> str:
     cargo_kind = "air cargo AWB" if shipment_type == "air_awb" else "sea container"
     return (
         f"Map this {cargo_kind} tracking status to ONE of the normalized values.\n"
-        f"Raw status: \"{raw_status}\"\n"
+        f'Raw status: "{raw_status}"\n'
         f"Valid values: {valid_statuses}\n"
         f"Reply with only the normalized status value, nothing else."
     )

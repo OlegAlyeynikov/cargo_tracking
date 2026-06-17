@@ -40,16 +40,20 @@ def parse_file(content: bytes, filename: str) -> list[ShipmentInput]:
         if not number:
             logger.warning("Row %d skipped: missing 'number' value", i)
             continue
-        shipments.append(ShipmentInput(
-            id=row.get("id", "").strip() or f"row-{i}",
-            number=number,
-            type=row.get("type", "").strip() or None,
-            carrier=row.get("carrier", "").strip() or None,
-            comment=row.get("comment", "").strip() or None,
-        ))
+        shipments.append(
+            ShipmentInput(
+                id=row.get("id", "").strip() or f"row-{i}",
+                number=number,
+                type=row.get("type", "").strip() or None,
+                carrier=row.get("carrier", "").strip() or None,
+                comment=row.get("comment", "").strip() or None,
+            )
+        )
 
     if not shipments:
-        raise ValueError("No valid rows found — every row is missing the 'number' column value")
+        raise ValueError(
+            "No valid rows found — every row is missing the 'number' column value"
+        )
 
     return shipments
 
@@ -68,23 +72,30 @@ def _parse_excel(content: bytes) -> list[dict[str, str]]:
     if not rows:
         return []
 
-    headers = [str(cell).strip().lower() if cell is not None else "" for cell in rows[0]]
+    headers = [
+        str(cell).strip().lower() if cell is not None else "" for cell in rows[0]
+    ]
 
     result: list[dict[str, str]] = []
     for row in rows[1:]:
         if all(cell is None for cell in row):
             continue
-        result.append({
-            headers[i]: str(cell).strip() if cell is not None else ""
-            for i, cell in enumerate(row)
-            if i < len(headers) and headers[i]
-        })
+        result.append(
+            {
+                headers[i]: str(cell).strip() if cell is not None else ""
+                for i, cell in enumerate(row)
+                if i < len(headers) and headers[i]
+            }
+        )
 
     return result
 
 
 def _normalize_keys(row: dict) -> dict[str, str]:
-    return {k.strip().lower(): str(v).strip() if v is not None else "" for k, v in row.items()}
+    return {
+        k.strip().lower(): str(v).strip() if v is not None else ""
+        for k, v in row.items()
+    }
 
 
 def _validate_headers(keys: any, filename: str) -> None:

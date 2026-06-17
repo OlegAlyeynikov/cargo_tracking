@@ -2,14 +2,14 @@ import re
 from datetime import datetime
 
 _FORMATS = [
-    "%d.%m.%Y",       # 20.05.2026  (track-trace air)
-    "%d-%b-%Y",       # 19-Jan-2021 (triton)
-    "%d %b %Y",       # 19 Jan 2021
-    "%Y-%m-%d",       # 2026-05-20
-    "%m/%d/%Y",       # 05/20/2026
-    "%d/%m/%Y",       # 20/05/2026
-    "%d.%m.%Y %H:%M", # 20.05.2026 14:30
-    "%d %b %Y %H:%M", # 19 Jan 2021 08:00
+    "%d.%m.%Y",  # 20.05.2026  (track-trace air)
+    "%d-%b-%Y",  # 19-Jan-2021 (triton)
+    "%d %b %Y",  # 19 Jan 2021
+    "%Y-%m-%d",  # 2026-05-20
+    "%m/%d/%Y",  # 05/20/2026
+    "%d/%m/%Y",  # 20/05/2026
+    "%d.%m.%Y %H:%M",  # 20.05.2026 14:30
+    "%d %b %Y %H:%M",  # 19 Jan 2021 08:00
 ]
 
 _TZ_RE = re.compile(r"([+-]\d{2}:?\d{2}|Z)$")

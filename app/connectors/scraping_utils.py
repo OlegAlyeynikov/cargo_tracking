@@ -38,19 +38,22 @@ def parse_generic_table_events(html: str, shipment_type: str) -> list[TrackingEv
                 (c for c in non_empty if not _DATE_RE.search(c) and len(c) > 3), None
             )
             loc_val = next(
-                (c for c in non_empty if c not in (date_val, desc_val) and len(c) > 2), None
+                (c for c in non_empty if c not in (date_val, desc_val) and len(c) > 2),
+                None,
             )
 
             if not desc_val:
                 continue
 
-            events.append(TrackingEvent(
-                event_name=desc_val,
-                normalized_status=normalize_status(desc_val, shipment_type),
-                location=loc_val,
-                datetime=normalize_date(date_val),
-                raw_datetime=date_val,
-                raw_text=" | ".join(non_empty),
-            ))
+            events.append(
+                TrackingEvent(
+                    event_name=desc_val,
+                    normalized_status=normalize_status(desc_val, shipment_type),
+                    location=loc_val,
+                    datetime=normalize_date(date_val),
+                    raw_datetime=date_val,
+                    raw_text=" | ".join(non_empty),
+                )
+            )
 
     return events

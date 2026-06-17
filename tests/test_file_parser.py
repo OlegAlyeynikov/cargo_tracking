@@ -22,6 +22,7 @@ def _xlsx(rows: list[list]) -> bytes:
 
 # --- CSV -------------------------------------------------------------------
 
+
 def test_csv_minimal_columns() -> None:
     content = _csv("number\n501-20285134\nTLLU4912250")
     result = parse_file(content, "test.csv")
@@ -33,7 +34,9 @@ def test_csv_minimal_columns() -> None:
 
 
 def test_csv_all_columns() -> None:
-    content = _csv("id,number,type,carrier,comment\nint-001,080-38652331,air_awb,CX,test")
+    content = _csv(
+        "id,number,type,carrier,comment\nint-001,080-38652331,air_awb,CX,test"
+    )
     result = parse_file(content, "test.csv")
     assert len(result) == 1
     s = result[0]
@@ -78,6 +81,7 @@ def test_csv_empty_file_raises() -> None:
 
 # --- Excel -----------------------------------------------------------------
 
+
 def test_xlsx_minimal_columns() -> None:
     content = _xlsx([["number"], ["501-20285134"], ["TLLU4912250"]])
     result = parse_file(content, "test.xlsx")
@@ -87,10 +91,12 @@ def test_xlsx_minimal_columns() -> None:
 
 
 def test_xlsx_all_columns() -> None:
-    content = _xlsx([
-        ["id", "number", "type", "carrier", "comment"],
-        ["int-001", "MSKU1880987", "sea_container", "MSKU", "test"],
-    ])
+    content = _xlsx(
+        [
+            ["id", "number", "type", "carrier", "comment"],
+            ["int-001", "MSKU1880987", "sea_container", "MSKU", "test"],
+        ]
+    )
     result = parse_file(content, "shipments.xlsx")
     s = result[0]
     assert s.id == "int-001"
@@ -111,6 +117,7 @@ def test_xlsx_skips_empty_rows() -> None:
 
 
 # --- Unsupported format ----------------------------------------------------
+
 
 def test_unsupported_extension_raises() -> None:
     with pytest.raises(ValueError, match="Unsupported file type"):

@@ -24,8 +24,15 @@ _COSCO_PREFIXES = {"CAIU", "CBHU", "CCLU", "CXDU", "FCIU"}
 _LEASING_PREFIXES = {
     code
     for code, name in _CONTAINER_OWNERS.items()
-    if name in {"Triton International", "Textainer", "Touax", "CAI International",
-                "Beacon Intermodal", "Seaco"}
+    if name
+    in {
+        "Triton International",
+        "Textainer",
+        "Touax",
+        "CAI International",
+        "Beacon Intermodal",
+        "Seaco",
+    }
 }
 
 _track_trace_air = TrackTraceAirConnector()

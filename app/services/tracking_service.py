@@ -58,7 +58,9 @@ async def process_request(
     if webhook_url and background_tasks:
         for result in results:
             if result.status_change and result.status_change.changed:
-                number = result.detected.normalized_number if result.detected else "unknown"
+                number = (
+                    result.detected.normalized_number if result.detected else "unknown"
+                )
                 background_tasks.add_task(
                     webhook_service.fire,
                     webhook_url,
@@ -67,7 +69,11 @@ async def process_request(
                     result,
                 )
 
-    success = sum(1 for r in results if not r.errors or all(e.code == "PARTIAL_DATA" for e in r.errors))
+    success = sum(
+        1
+        for r in results
+        if not r.errors or all(e.code == "PARTIAL_DATA" for e in r.errors)
+    )
     failed = len(results) - success
 
     return TrackingResponse(
@@ -84,24 +90,32 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
     input_dict = shipment.model_dump(exclude_none=True)
 
     detected = detector.detect(shipment.number)
-    debug_steps.append(DebugStep(step="detect_type", status="success", result=detected.type))
+    debug_steps.append(
+        DebugStep(step="detect_type", status="success", result=detected.type)
+    )
     logger.info("[%s] detect_type=%s", shipment.number, detected.type)
 
     if detected.type == "unknown":
-        errors.append(ErrorBlock(
-            code="INVALID_FORMAT",
-            message=f"Number '{shipment.number}' does not match AWB or container number format",
-        ))
+        errors.append(
+            ErrorBlock(
+                code="INVALID_FORMAT",
+                message=f"Number '{shipment.number}' does not match AWB or container number format",
+            )
+        )
         return ShipmentResult(
             input=input_dict,
             detected=detected,
             errors=errors,
-            debug=DebugLog(shipment_number=shipment.number, steps=debug_steps) if include_debug else None,
+            debug=DebugLog(shipment_number=shipment.number, steps=debug_steps)
+            if include_debug
+            else None,
         )
 
     cached = await cache_service.get_cached(detected.normalized_number)
     if cached:
-        debug_steps.append(DebugStep(step="cache_lookup", status="success", result="hit"))
+        debug_steps.append(
+            DebugStep(step="cache_lookup", status="success", result="hit")
+        )
         logger.info("[%s] cache=hit", shipment.number)
         result = ShipmentResult.model_validate(cached)
         if include_debug:
@@ -121,31 +135,52 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
 
         for attempt in range(1, settings.retry_attempts + 1):
             try:
-                tracking_data = await connector.fetch(detected.normalized_number, detected.type)
+                tracking_data = await connector.fetch(
+                    detected.normalized_number, detected.type
+                )
                 connector_url = connector.last_url
-                debug_steps.append(DebugStep(
-                    step=step_name,
-                    status="success",
-                    result=f"attempt={attempt}",
-                    url=connector_url,
-                ))
-                logger.info("[%s] %s url=%s", shipment.number, step_name, connector_url)
-                debug_steps.append(DebugStep(
-                    step="parse_events",
-                    status="success",
-                    events_count=len(tracking_data.events),
-                ))
-                logger.info("[%s] parse_events count=%d", shipment.number, len(tracking_data.events))
-                if tracking_data.current_status in (None, "unknown") and tracking_data.raw_status:
-                    tracking_data.current_status = await normalize_status_with_ai_fallback(
-                        tracking_data.raw_status, detected.type
-                    )
-                    debug_steps.append(DebugStep(
-                        step="ai_status_normalization",
+                debug_steps.append(
+                    DebugStep(
+                        step=step_name,
                         status="success",
-                        result=tracking_data.current_status,
-                    ))
-                    logger.info("[%s] ai_status=%s", shipment.number, tracking_data.current_status)
+                        result=f"attempt={attempt}",
+                        url=connector_url,
+                    )
+                )
+                logger.info("[%s] %s url=%s", shipment.number, step_name, connector_url)
+                debug_steps.append(
+                    DebugStep(
+                        step="parse_events",
+                        status="success",
+                        events_count=len(tracking_data.events),
+                    )
+                )
+                logger.info(
+                    "[%s] parse_events count=%d",
+                    shipment.number,
+                    len(tracking_data.events),
+                )
+                if (
+                    tracking_data.current_status in (None, "unknown")
+                    and tracking_data.raw_status
+                ):
+                    tracking_data.current_status = (
+                        await normalize_status_with_ai_fallback(
+                            tracking_data.raw_status, detected.type
+                        )
+                    )
+                    debug_steps.append(
+                        DebugStep(
+                            step="ai_status_normalization",
+                            status="success",
+                            result=tracking_data.current_status,
+                        )
+                    )
+                    logger.info(
+                        "[%s] ai_status=%s",
+                        shipment.number,
+                        tracking_data.current_status,
+                    )
                 _apply_translations(tracking_data)
                 final_source = connector.name
                 last_exc = None
@@ -154,33 +189,57 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
                 last_exc = exc
                 if exc.code not in _RETRYABLE or attempt == settings.retry_attempts:
                     break
-                debug_steps.append(DebugStep(
-                    step=step_name,
-                    status="retry",
-                    result=f"attempt={attempt}",
-                    error=exc.message,
-                ))
-                logger.warning("[%s] %s retry attempt=%d: %s", shipment.number, step_name, attempt, exc.message)
+                debug_steps.append(
+                    DebugStep(
+                        step=step_name,
+                        status="retry",
+                        result=f"attempt={attempt}",
+                        error=exc.message,
+                    )
+                )
+                logger.warning(
+                    "[%s] %s retry attempt=%d: %s",
+                    shipment.number,
+                    step_name,
+                    attempt,
+                    exc.message,
+                )
 
         if tracking_data:
             break
         if last_exc:
-            debug_steps.append(DebugStep(step=step_name, status="failed", error=last_exc.message))
-            logger.warning("[%s] %s failed: %s", shipment.number, step_name, last_exc.message)
-            errors.append(ErrorBlock(code=last_exc.code, message=last_exc.message, source=last_exc.source))
+            debug_steps.append(
+                DebugStep(step=step_name, status="failed", error=last_exc.message)
+            )
+            logger.warning(
+                "[%s] %s failed: %s", shipment.number, step_name, last_exc.message
+            )
+            errors.append(
+                ErrorBlock(
+                    code=last_exc.code, message=last_exc.message, source=last_exc.source
+                )
+            )
 
     quality = _build_quality(tracking_data, errors, detected)
 
     if tracking_data and quality.missing_fields and final_source:
         partial = PartialDataError(final_source, quality.missing_fields)
-        errors.append(ErrorBlock(code=partial.code, message=partial.message, source=partial.source))
+        errors.append(
+            ErrorBlock(
+                code=partial.code, message=partial.message, source=partial.source
+            )
+        )
 
     delay = _compute_delay(tracking_data)
-    status_change = await _detect_status_change(detected.normalized_number, tracking_data)
+    status_change = await _detect_status_change(
+        detected.normalized_number, tracking_data
+    )
 
     source_block: SourceBlock | None = None
     if final_source:
-        successful_connector = next((c for c in connectors if c.name == final_source), None)
+        successful_connector = next(
+            (c for c in connectors if c.name == final_source), None
+        )
         source_block = SourceBlock(
             primary_source=connectors[0].name,
             final_source=final_source,
@@ -197,7 +256,9 @@ async def _track_one(shipment: ShipmentInput, include_debug: bool) -> ShipmentRe
         delay=delay,
         status_change=status_change,
         errors=errors,
-        debug=DebugLog(shipment_number=shipment.number, steps=debug_steps) if include_debug else None,
+        debug=DebugLog(shipment_number=shipment.number, steps=debug_steps)
+        if include_debug
+        else None,
     )
 
     if tracking_data and not errors:
@@ -250,12 +311,16 @@ def _make_delay_info(delay_days: int) -> DelayInfo:
 
     for threshold, level in _RISK_THRESHOLDS:
         if delay_days <= threshold:
-            return DelayInfo(delay_detected=True, delay_days=delay_days, risk_level=level)
+            return DelayInfo(
+                delay_detected=True, delay_days=delay_days, risk_level=level
+            )
 
     return DelayInfo(delay_detected=True, delay_days=delay_days, risk_level="critical")
 
 
-async def _detect_status_change(number: str, tracking_data: TrackingData | None) -> StatusChange | None:
+async def _detect_status_change(
+    number: str, tracking_data: TrackingData | None
+) -> StatusChange | None:
     if tracking_data is None:
         return None
 

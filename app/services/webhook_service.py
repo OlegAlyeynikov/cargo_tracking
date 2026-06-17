@@ -31,6 +31,13 @@ async def fire(
         async with httpx.AsyncClient(timeout=_WEBHOOK_TIMEOUT) as client:
             response = await client.post(webhook_url, json=payload)
             response.raise_for_status()
-        logger.info("Webhook delivered for %s → %s (HTTP %s)", number, webhook_url, response.status_code)
+        logger.info(
+            "Webhook delivered for %s → %s (HTTP %s)",
+            number,
+            webhook_url,
+            response.status_code,
+        )
     except Exception as exc:
-        logger.warning("Webhook delivery failed for %s → %s: %s", number, webhook_url, exc)
+        logger.warning(
+            "Webhook delivery failed for %s → %s: %s", number, webhook_url, exc
+        )

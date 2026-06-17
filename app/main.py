@@ -57,7 +57,10 @@ async def tracking_error_handler(request: Request, exc: TrackingError) -> JSONRe
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
     logging.getLogger(__name__).exception("Unhandled error")
-    return JSONResponse(status_code=500, content={"error": "INTERNAL_ERROR", "message": "An unexpected error occurred"})
+    return JSONResponse(
+        status_code=500,
+        content={"error": "INTERNAL_ERROR", "message": "An unexpected error occurred"},
+    )
 
 
 @app.get("/health", tags=["health"])
