@@ -93,11 +93,31 @@ def _get_client() -> AsyncOpenAI | None:
     if not settings.openrouter_api_key:
         return None
     if _openrouter_client is None:
-        _openrouter_client = AsyncOpenAI(
+        raw: AsyncOpenAI = AsyncOpenAI(
             api_key=settings.openrouter_api_key,
             base_url="https://openrouter.ai/api/v1",
         )
+        _openrouter_client = _wrap_with_langsmith(raw)
     return _openrouter_client
+
+
+def _wrap_with_langsmith(client: AsyncOpenAI) -> AsyncOpenAI:
+    if not (settings.langsmith_tracing and settings.langsmith_api_key):
+        return client
+    try:
+        import os
+
+        from langsmith.wrappers import wrap_openai
+
+        os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
+        os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
+        logger.info("LangSmith tracing enabled (project=%s)", settings.langsmith_project)
+        return wrap_openai(client)  # type: ignore[return-value]
+    except ImportError:
+        logger.warning(
+            "LANGSMITH_TRACING=true but langsmith is not installed — run: uv add langsmith"
+        )
+        return client
 
 
 def normalize_status(raw_status: str, shipment_type: str) -> str:

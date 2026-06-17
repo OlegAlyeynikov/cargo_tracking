@@ -838,6 +838,26 @@ Copy `.env.example` to `.env` and fill in what you need.
 | `PLAYWRIGHT_RENDER_WAIT_SECONDS` | `5` | Seconds to wait for JavaScript to render after page load. |
 | `LOG_LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 | `DEBUG` | `false` | FastAPI debug mode. Do not use in production. |
+| `LANGSMITH_TRACING` | `false` | Set to `true` to enable LangSmith tracing for AI calls. |
+| `LANGSMITH_API_KEY` | `""` | LangSmith API key. Required when tracing is enabled. |
+| `LANGSMITH_PROJECT` | `cargo-tracking` | LangSmith project name for grouping traces. |
+
+### LangSmith tracing
+
+When `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` is set, every OpenRouter AI call is
+traced automatically via `langsmith.wrappers.wrap_openai`. Traces appear in your LangSmith
+dashboard grouped under `LANGSMITH_PROJECT`.
+
+Install the package first (it is an optional dependency):
+
+```bash
+uv add langsmith
+# or with the extras group:
+uv sync --extra tracing
+```
+
+If `langsmith` is not installed but the flag is set, the service logs a warning and continues
+without tracing — it does not crash.
 
 ---
 
