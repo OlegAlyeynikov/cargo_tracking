@@ -8,7 +8,7 @@ and errors per shipment.
 
 - Python 3.12 + FastAPI + Pydantic v2
 - httpx for plain HTTP requests, Playwright for JavaScript-rendered pages
-- OpenRouter API for AI-based status normalization (fallback when rules don't match)
+- OpenRouter API for AI-based status normalization (fallback when rules do not match)
 - Redis for result caching (cache-aside, configurable TTL)
 - Docker + docker-compose
 
@@ -19,255 +19,281 @@ and errors per shipment.
 ### Option 1 — Local (no Docker)
 
 ```bash
-cp .env.example .env
-# Fill in OPENROUTER_API_KEY if you want AI status normalization
-
-uv sync
-uv run playwright install chromium
-
-make dev
+    cp .env.example .env
+    # Fill in OPENROUTER_API_KEY if you want AI status normalization
+    
+    uv sync
+    uv run playwright install chromium
+    
+    make dev
 ```
 
-API: http://localhost:8000  
+API: http://localhost:8000
 Swagger docs: http://localhost:8000/docs
 
-> Redis is optional. If it's not running, caching is silently skipped and the service still works.
+> Redis is optional. If it is not running, caching is silently skipped and the service still works.
 > To start a local Redis quickly: `make redis`
 
 ### Option 2 — Docker (everything included)
 
 ```bash
-make docker-up
+    make docker-up
 ```
 
 This starts the API and Redis together. Logs: `make docker-logs`. Stop: `make docker-down`.
 
 ---
 
-## Usage
+## Testing the Full Flow with curl
 
-### Track shipments
+This section covers every endpoint and feature. Copy and run these commands one by one
+to verify that everything works. All examples use `localhost:8000`.
 
-```bash
-curl -X POST http://localhost:8000/api/v1/track \
-  -H "Content-Type: application/json" \
-  -d @examples/input.json
-```
-
-### Track with debug steps visible
+### Health check
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/track?debug=true" \
-  -H "Content-Type: application/json" \
-  -d '{"shipments": [{"id": "test-1", "number": "501-20285134"}]}'
+    curl http://localhost:8000/health
 ```
 
-The `?debug=true` parameter adds a `debug` field to each result showing every step the pipeline
-took — which connector was tried, what happened, and why.
+Expected:
+```json
+{"status": "ok", "version": "0.1.0"}
+```
 
 ---
 
-## Input Format
+### 1. Basic tracking request
 
-```json
-{
-  "shipments": [
-    {"id": "internal-001", "number": "080-38652331"},
-    {"id": "internal-002", "number": "501-20285134"},
-    {"id": "internal-003", "number": "TLLU4912250"},
-    {"id": "internal-004", "number": "MSKU1880987"},
-    {"id": "invalid-001",  "number": "NOTANUMBER"}
-  ]
-}
-```
+Send a mix of AWB and container numbers. The API detects the type automatically.
 
-The `id` field is optional but useful — it links each result back to your internal record.
-
----
-
-## Output Format
-
-See `examples/output.json` for a full real-world example. Short version:
-
-```json
-{
-  "request_id": "tracking-20260616-120000-abc123",
-  "checked_at": "2026-06-16T12:00:00+00:00",
-  "summary": {"total": 2, "success": 1, "failed": 1},
-  "results": [
-    {
-      "input": {"id": "internal-002", "number": "501-20285134"},
-      "detected": {
-        "type": "air_awb",
-        "normalized_number": "501-20285134",
-        "carrier": {"name": "Lufthansa Cargo", "code": "LH", "source": "awb_prefix"}
-      },
-      "tracking": {
-        "current_status": "departed",
-        "raw_status": "Flight LH8082 - DEP",
-        "last_event": {
-          "event_code": "DEP",
-          "event_name": "Flight LH8082 - DEP",
-          "location": "VIE → WAW",
-          "datetime": "13 Jun 2026"
-        },
-        "dates": {"etd": null, "eta": null, "actual_departure": null, "actual_arrival": null},
-        "route": {"origin": null, "destination": null, "transit_points": []},
-        "events": [
-          {
-            "event_code": "FOH",
-            "event_name": "Flight LH8474 - FOH",
-            "normalized_status": "in_origin_terminal",
-            "location": "HKG → FRA",
-            "datetime": "07 Jun 2026"
-          },
-          {
-            "event_code": "DEP",
-            "event_name": "Flight LH8082 - DEP",
-            "normalized_status": "departed",
-            "location": "VIE → WAW",
-            "datetime": "13 Jun 2026"
-          }
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "air-1", "number": "501-20285134"},
+          {"id": "sea-1", "number": "TRHU6714051"},
+          {"id": "sea-2", "number": "TLLU4912250"},
+          {"id": "bad-1", "number": "NOTANUMBER"}
         ]
-      },
-      "source": {
-        "primary_source": "track_trace_air",
-        "final_source": "track_trace_air",
-        "url": null,
-        "retrieved_at": "2026-06-16T12:00:00+00:00"
-      },
-      "quality": {
-        "confidence": 0.7,
-        "data_complete": false,
-        "missing_fields": ["etd", "eta", "actual_departure", "actual_arrival"],
-        "warnings": []
-      },
-      "errors": []
+      }' | jq .
+```
+
+What to look for:
+- `air-1` → `detected.type: "air_awb"`, carrier Emirates SkyCargo, 2 flight events, `current_status: "departed"`
+- `sea-1` / `sea-2` → `detected.type: "sea_container"`, Triton interchange events
+- `bad-1` → `errors[0].code: "INVALID_FORMAT"`, all other fields are `null`
+- `summary`: `total: 4, success: 3, failed: 1`
+- Every successful result has a `quality` block and a `status_change` block
+
+> **About PARTIAL_DATA:** All three working shipments will have `errors[0].code: "PARTIAL_DATA"`.
+> This is expected — public tracking pages do not publish ETD/ETA. The events, current status,
+> and last event are real data. ETD/ETA are only available through carrier APIs (e.g. Maersk API).
+
+---
+
+### 2. Debug mode — see every step the pipeline took
+
+Add `?debug=true` to see exactly which connectors were tried and what happened.
+
+```bash
+    curl -s -X POST "http://localhost:8000/api/v1/track?debug=true" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "test-1", "number": "501-20285134"}
+        ]
+      }' | jq .
+```
+
+The response includes a `debug` field on each result. Real output for `501-20285134`:
+
+```json
+    "debug": {
+      "shipment_number": "501-20285134",
+      "steps": [
+        {"step": "detect_type",           "status": "success", "result": "air_awb"},
+        {"step": "cache_lookup",          "status": "success", "result": "miss"},
+        {"step": "query_track_trace_air", "status": "success", "url": null, "result": "attempt=1"},
+        {"step": "parse_events",          "status": "success", "events_count": 3}
+      ]
     }
-  ]
-}
+```
+
+To also see a connector failure chain, try a Maersk number (API disabled by default):
+
+```bash
+    curl -s -X POST "http://localhost:8000/api/v1/track?debug=true" \
+      -H "Content-Type: application/json" \
+      -d '{"shipments": [{"id": "t", "number": "MSKU1880987"}]}' | jq .
+```
+
+The steps will show `query_maersk_api → failed (disabled) → retry → failed`, then
+`query_track_trace_container → failed (Maersk scraping blocked)`, then fallback.
+
+> Without `?debug=true`, the `debug` field is not present in the response at all.
+
+---
+
+### 3. Short format for integrations
+
+Add `?short=true` to get a compact flat response. Useful for systems that only need
+the current status and dates — not the full event history.
+
+```bash
+    curl -s -X POST "http://localhost:8000/api/v1/track?short=true" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "internal-001", "number": "501-20285134"},
+          {"id": "internal-002", "number": "TRHU6714051"}
+        ]
+      }' | jq .
+```
+
+Short format returns only: `id`, `number`, `type`, `current_status`, `eta`, `etd`,
+`last_event_at`, `source`, `errors`. No events list, no quality block.
+
+Expected for `501-20285134`:
+```json
+    {
+      "id": "internal-001",
+      "number": "501-20285134",
+      "type": "air_awb",
+      "current_status": "departed",
+      "eta": null,
+      "etd": null,
+      "last_event_at": "2026-05-20",
+      "source": "track_trace_air",
+      "errors": [{"code": "PARTIAL_DATA", "message": "...", "source": "track_trace_air"}]
+    }
+```
+
+You can combine `?short=true&debug=true` if needed.
+
+---
+
+### 4. Webhook on status change
+
+Pass a `webhook_url` in the request body. After the response is sent to you,
+the API checks whether the current status is different from the last time it checked.
+If it changed, a POST is sent to your webhook URL in the background.
+
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "order-123", "number": "501-20285134"}
+        ],
+        "webhook_url": "https://webhook.site/your-unique-id"
+      }' | jq .
+```
+
+Every result includes a `status_change` block:
+
+```json
+    "status_change": {
+      "changed": true,
+      "previous_status": "in_transit",
+      "previous_status_ua": "Вантаж у транзиті.",
+      "current_status": "arrived",
+      "current_status_ua": "Вантаж прибув у порт / аеропорт."
+    }
+```
+
+If `changed` is `false`, the webhook is not called. Previous status is kept in Redis
+for 7 days (`STATUS_TTL_SECONDS`).
+
+> Use https://webhook.site to get a free test URL and see the incoming POST.
+
+---
+
+### 5. Periodic re-check (polling)
+
+Pass `poll_interval_minutes` to register a subscription. The API runs tracking for these
+shipments automatically every N minutes and calls the webhook if anything changes.
+
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "order-456", "number": "501-20285134"}
+        ],
+        "webhook_url": "https://webhook.site/your-unique-id",
+        "poll_interval_minutes": 60
+      }' | jq .
+```
+
+The response is the same as a normal tracking response. In the background, a subscription
+is saved in Redis. The scheduler runs every 60 seconds and fires subscriptions that are due.
+
+Subscriptions expire automatically after 7 days with no re-runs (Redis TTL).
+
+**List all active subscriptions:**
+
+```bash
+    curl -s http://localhost:8000/api/v1/track/schedules | jq .
+```
+
+Returns a list of subscription objects. Each one shows the shipments, webhook URL,
+interval in seconds, and when the next run is scheduled.
+
+**Cancel a subscription:**
+
+Use the `request_id` from the tracking response (field `request_id` at the top level).
+
+```bash
+    curl -s -X DELETE http://localhost:8000/api/v1/track/schedule/tracking-20260616-120000-abc123
+```
+
+Returns `{"cancelled": "tracking-20260616-120000-abc123"}` on success.
+Returns HTTP 404 if the subscription does not exist or already expired.
+
+---
+
+### 6. Upload a CSV file
+
+The file must have a `number` column. Other columns (`id`, `type`, `carrier`, `comment`)
+are optional. If `id` is missing, rows are numbered `row-1`, `row-2`, etc.
+
+Example CSV:
+```
+id,number,comment
+air-1,501-20285134,Emirates SkyCargo AWB
+sea-1,TRHU6714051,Triton container
+```
+
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track/file \
+      -F "file=@examples/input.csv" | jq .
 ```
 
 ---
 
-## How It Works
+### 7. Upload an Excel file (.xlsx)
 
-Every shipment goes through this pipeline:
+Same format as CSV, just in an Excel file. The first sheet is used. Column names must
+match: `number`, `id`, `type`, `carrier`, `comment`.
 
-```
-Input JSON
-  → NumberTypeDetector      — is it AWB or container?
-  → TrackingSourceRouter    — pick the right connectors for this prefix
-  → Connector chain         — try each connector in order until one works
-  → StatusNormalizer        — translate raw status to a standard code
-  → ResponseBuilder         — build the final JSON result
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track/file -F "file=@examples/input.xlsx" | jq .
 ```
 
-Each shipment is processed independently. If one fails, the others still return results.
-Up to 3 shipments are processed in parallel (controlled by a semaphore to avoid hammering sources).
+You can also combine with `?debug=true` or `?short=true`:
+
+```bash
+    curl -s -X POST "http://localhost:8000/api/v1/track/file?debug=true" \
+      -F "file=@examples/input.csv" | jq .
+```
 
 ---
 
-## Connectors
+### 8. Maersk API (when enabled)
 
-This is the most important part of the system. Each connector handles a specific tracking source.
-Below is a detailed explanation of each one — what it does, why it was built this way, and
-what it cannot do.
-
----
-
-### TrackTraceAirConnector — AWB tracking via track-trace.com
-
-**Used for:** All AWB numbers except Air France (074) and KLM (076).
-
-**How it works (two-step approach):**
-
-First, we make a plain HTTP POST to `track-trace.com/aircargo/track_form` with the AWB number.
-This is an internal endpoint that track-trace.com uses for its own form. The response is an
-HTML fragment containing `#direct-form` (the carrier's tracking URL) and `#direct-type`
-(whether the result is a redirect URL, a form, or a problem).
-
-If we get a URL, we open it with Playwright (headless Chromium) and wait for the page to render.
-Then we parse the tracking table.
-
-**Why two steps instead of just using the track-trace.com page directly?**
-
-track-trace.com renders its results inside an iframe using JavaScript. The tracking data is
-not in the initial HTML — the browser has to load the carrier's page and inject it. When we
-tried scraping the track-trace.com page directly, we never saw the `#direct-type` element
-because it gets created dynamically. By hitting `track_form` directly (which is a simple form
-endpoint), we get the carrier URL as plain text and skip the iframe entirely.
-
-**Carrier-specific parsers:**
-
-Different airlines render their tracking data differently:
-
-- **ENXT** (used by many airlines including Lufthansa): An Angular SPA with a flight-legs
-  table. Each row represents one flight segment. We skip "detail" rows (collapsed sub-rows
-  that have only 1–2 non-empty cells) and skip rows where the first cell is not a number
-  (the index column). We extract origin, destination, carrier code, flight number, date,
-  and IATA status code per leg.
-
-- **Lufthansa-cargo.com** (direct site): Playwright loads the page but only gets a login
-  shell. Lufthansa uses bot fingerprinting that blocks headless browsers. The page renders
-  nothing useful even with a 6-second wait. We return `NOT_FOUND` in this case.
-
-- **Generic parser**: For any other carrier page, we scan all HTML tables and extract rows
-  that contain a date-like string and a text description.
-
-**Result type "problem":**
-
-If track-trace.com returns `type=problem`, it means the carrier is not supported or the
-AWB prefix is unknown to them. We return `NOT_FOUND` — not `SOURCE_UNAVAILABLE` — because
-this is a definitive "no data" answer, not a temporary failure.
-
----
-
-### TrackTraceContainerConnector — container tracking via track-trace.com
-
-**Used for:** Sea container numbers that are not COSCO, Maersk, or leasing-only prefixes.
-Also handles TRHU and TLLU (Triton containers) via a direct HTTP path.
-
-**How it works:**
-
-Same two-step approach as the air connector: POST to `track-trace.com/container/track_form`,
-get the carrier URL, then scrape the carrier page.
-
-**Triton (tritoncontainer.com) — no Playwright needed:**
-
-For TRHU and TLLU numbers, track-trace.com redirects to `tritoncontainer.com`. This site
-renders a simple HTML table without JavaScript. We fetch it with plain httpx (much faster
-and more reliable than Playwright).
-
-The table has an unusual layout — it's transposed. Column 0 is a field label ("On Hire Date",
-"Customer", etc.) and each column after that represents one interchange event. We read the
-interchange type names from row 1 and build events column by column, then sort them by
-the "Interchange Sequence" field (ascending = chronological order).
-
-Note: Triton is a container leasing company. Their data shows when the container was hired
-out and returned, not the shipping route. If you need route events (vessel name, port of
-loading, etc.), you need the shipping line's bill of lading — not the container number.
-
-**Maersk (maersk.com) — fast rejection:**
-
-If track-trace.com redirects to a Maersk URL, we immediately raise `SOURCE_UNAVAILABLE`
-without launching Playwright. Maersk uses strong bot protection (Akamai Bot Manager) and
-their public tracking page does not work with headless browsers. The right way to get Maersk
-data is through the Maersk Track & Trace API (see MaerskAPIConnector below).
-
-**Generic Playwright path:**
-
-For all other carriers, we open the carrier URL with Playwright, wait 3 seconds for rendering,
-and parse whatever tables appear on the page.
-
----
-
-### MaerskAPIConnector — Maersk Track & Trace API
-
-**Used for:** MSKU, MAEU, MAEI container prefixes (when enabled).
-
-**Disabled by default.** Maersk's official API requires approved access — you need a company
-email and a customer code. To enable it:
+By default, Maersk numbers go through `track-trace.com`. If you have Maersk API credentials,
+you can enable the direct API connector:
 
 ```env
 MAERSK_API_ENABLED=true
@@ -275,91 +301,360 @@ MAERSK_CONSUMER_KEY=your_key
 MAERSK_CLIENT_SECRET=your_secret
 ```
 
-Request access at: https://developer.maersk.com
+Then test with a real MSKU number:
 
-**Why use the API instead of scraping?**
+```bash
+    curl -s -X POST "http://localhost:8000/api/v1/track?debug=true" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "maersk-test", "number": "MSKU1880987"}
+        ]
+      }' | jq .
+```
 
-Maersk's website is protected by Akamai Bot Manager, which detects headless browsers.
-Playwright gets blocked even when we mimic a real browser. The API gives us structured JSON
-directly and is the officially supported way to get tracking data.
-
----
-
-### CoscoConnector — COSCO Shipping Lines portal (SCCT)
-
-**Used for:** CAIU, CBHU, CCLU, CXDU, FCIU prefixes.
-
-**How it works:**
-
-COSCO has a public tracking portal at `elines.coscoshipping.com/scct`. We navigate to it
-with Playwright, passing the container number as a URL parameter. Then we click the "Search"
-button and wait 6 seconds for the Vue.js SPA to load results.
-
-We check the page text for phrases like "no results found" or "not found" before trying to
-parse events. If any of those phrases appear, we return `NOT_FOUND` immediately.
-
-**Why Playwright and not the API?**
-
-COSCO does have a `shipmentExists` API endpoint, but it returns base64-encoded data that
-appears to be encrypted or obfuscated with a custom algorithm. We tried XOR decoding with
-several key candidates — none worked. Rather than spending time reverse-engineering it,
-we use the public tracking UI which gives us the same data.
-
-**Why not use track-trace.com for COSCO?**
-
-track-trace.com does sometimes redirect COSCO numbers to the SCCT portal, but the redirect
-is inconsistent and was returning "problem" for several CAIU numbers during testing.
-Going directly to the COSCO portal gives more reliable results.
+With the API enabled, `debug.steps` will show `maersk_api` with `"status": "success"` instead
+of `"status": "failed"` → `"error": "disabled"`.
 
 ---
 
-### AirFranceConnector — Air France / KLM Cargo (074, 076 prefixes)
+### 9. Leasing container — expected error
 
-**Used for:** AWB numbers starting with 074 (Air France Cargo) or 076 (KLM Cargo).
+Containers from leasing companies (UETU, TEXU, TTNU, TGHU, etc.) are not operated by
+shipping lines, so there is no route to track. The API explains this clearly.
 
-**What it does:** Returns `LOGIN_REQUIRED` with an explanation.
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "lease-1", "number": "UETU1234565"}
+        ]
+      }' | jq .
+```
 
-**Why not scrape afklcargo.com?**
-
-We checked. The site has a REST API at `/api/tracking/{awb}` that returns proper JSON —
-but it requires authentication (returns 401 without a token). The site also runs Akamai
-Bot Manager, so Playwright gets blocked before the page even loads. There is no public
-tracking page that works without logging in.
-
-track-trace.com also does not support Air France — it redirects 074/076 numbers back to
-its own form page with no carrier URL.
-
-**Integration path:** If you get API credentials from the Air France Cargo developer portal,
-replace this connector with an authenticated httpx client using a Bearer token. The connector
-structure is already in place.
+Expected: `errors[0].code` is `SOURCE_UNAVAILABLE` with a message explaining that
+this is a Textainer container and you need the shipping line's bill of lading to track it.
 
 ---
 
-### CarrierFallbackConnector — last resort
+### 10. Invalid number format
 
-**Used for:** Any number where all other connectors failed or don't apply.
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "bad-1", "number": "NOTANUMBER"},
+          {"id": "bad-2", "number": "12345"}
+        ]
+      }' | jq .
+```
 
-Returns `SOURCE_UNAVAILABLE` with a message saying no direct integration exists yet.
-This is intentional — the pipeline should never throw an unhandled exception. Every
-shipment must return a result, even if that result is an error.
+Expected: both get `INVALID_FORMAT` in `errors`. The `detected` field is `null`.
+Other shipments in the same request are not affected.
 
 ---
 
-### Leasing company detection (not a connector, but part of routing)
+### 11. Container with invalid check digit (quality warning)
 
-Containers with prefixes like UETU (Textainer), TEXU (Textainer), TTNU (Triton), TGHU (Triton),
-and others belong to container leasing companies. These companies rent containers to shipping
-lines — they don't operate vessels themselves.
+ISO 6346 check digit validation runs on all container numbers. A wrong check digit
+does not block processing — it adds a warning to the `quality` block.
 
-If you send a leasing container number, there is no "shipping route" to track. The container
-could be on any ship operated by any shipping line. To track it, you need the shipping line's
-bill of lading number, not the container number.
+`TLLU4912250` has a confirmed invalid check digit — use it to verify this feature:
 
-We return `SOURCE_UNAVAILABLE` with a clear explanation of this — rather than silently failing
-or returning empty results.
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "warn-1", "number": "TLLU4912250"}
+        ]
+      }' | jq .
+```
 
-**TRHU and TLLU are exceptions** — they are also Triton, but `tritoncontainer.com` returns
-useful interchange history for them, so they go through `TrackTraceContainerConnector`.
+Look for `quality.warnings` containing `"invalid_check_digit"`. The tracking still runs
+and returns events — the warning is informational only.
+
+The same validation applies to AWB numbers — the 8th digit must equal (first 7 digits) mod 7.
+
+---
+
+### 12. Air France / KLM — expected LOGIN_REQUIRED
+
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track \
+      -H "Content-Type: application/json" \
+      -d '{
+        "shipments": [
+          {"id": "af-1", "number": "074-12345678"},
+          {"id": "klm-1", "number": "076-12345678"}
+        ]
+      }' | jq .
+```
+
+Expected: `errors[0].code` is `LOGIN_REQUIRED`. This is not a bug — their tracking API
+requires OAuth credentials and is protected by Akamai Bot Manager.
+
+---
+
+### 13. Test AI status normalization
+
+Use `POST /api/v1/track/normalize` to verify that `OPENROUTER_API_KEY` works and the
+model classifies statuses correctly — without running a full tracking request.
+
+**Dictionary hit (no AI call):**
+
+```bash
+    curl -s -X POST http://localhost:8000/api/v1/track/normalize \
+      -H "Content-Type: application/json" \
+      -d '{"raw_status": "Flight LH8082 - DEP", "shipment_type": "air_awb"}' | jq .
+```
+
+```json
+    {
+      "raw_status": "Flight LH8082 - DEP",
+      "normalized_status": "departed",
+      "method": "dictionary",
+      "ai_enabled": true
+    }
+```
+
+**AI fallback (status not in dictionary):**
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/track/normalize \
+  -H "Content-Type: application/json" \
+  -d '{"raw_status": "Consignment is being palletized at origin hub", "shipment_type": "air_awb"}' | jq .
+```
+
+```json
+    {
+      "raw_status": "Consignment is being palletized at origin hub",
+      "normalized_status": "in_origin_terminal",
+      "method": "ai_fallback",
+      "ai_enabled": true
+    }
+```
+
+`method` tells you which path was taken:
+
+| `method` | Meaning |
+|----------|---------|
+| `dictionary` | Matched a known phrase — no AI call was made |
+| `ai_fallback` | Dictionary returned `unknown`, AI classified it |
+| `unknown` | Dictionary miss and either AI key not set or model returned nothing useful |
+
+If `ai_enabled: false`, set `OPENROUTER_API_KEY` in `.env` and restart.
+
+---
+
+## Input Format
+
+```json
+    {
+      "shipments": [
+        {
+          "id": "internal-001",
+          "number": "080-38652331",
+          "type": "air_awb",
+          "carrier": "CX",
+          "comment": "optional note"
+        }
+      ],
+      "webhook_url": "https://your-server.com/webhook",
+      "poll_interval_minutes": 30
+    }
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `shipments` | Yes | List of shipments. Min 1, max 50. |
+| `shipments[].id` | Yes | Your internal record ID — returned as-is in the result. |
+| `shipments[].number` | Yes | AWB or container number. Spaces and dashes are accepted. |
+| `shipments[].type` | No | Type hint: `air_awb` or `sea_container`. Not trusted without validation. |
+| `shipments[].carrier` | No | Carrier hint. Not used for routing decisions. |
+| `shipments[].comment` | No | Free text. Passed through to the result. |
+| `webhook_url` | No | URL to POST when a status changes. Applied to all shipments in the request. |
+| `poll_interval_minutes` | No | If set, re-checks shipments every N minutes. Range: 1–1440. Requires Redis. |
+
+---
+
+## Output Format
+
+Full annotated response with all possible fields:
+
+```json
+{
+  "request_id": "tracking-20260616-120000-abc123",
+  "checked_at": "2026-06-16T12:00:00+00:00",
+  "summary": {
+    "total": 2,
+    "success": 1,
+    "failed": 1
+  },
+  "results": [
+    {
+      "input": {
+        "id": "internal-001",
+        "number": "501-20285134"
+      },
+      "detected": {
+        "type": "air_awb",
+        "normalized_number": "501-20285134",
+        "carrier": {
+          "name": "Lufthansa Cargo",
+          "code": "LH",
+          "source": "awb_prefix"
+        }
+      },
+      "tracking": {
+        "current_status": "departed",
+        "current_status_ua": "Вантаж або судно/рейс відправлено.",
+        "raw_status": "Flight LH8082 - DEP",
+        "last_event": {
+          "event_code": "DEP",
+          "event_name": "Flight LH8082 - DEP",
+          "location": "VIE → WAW",
+          "datetime": "2026-06-13T14:30:00",
+          "timezone": "+02:00",
+          "timezone_confidence": "source_provided"
+        },
+        "dates": {
+          "etd": "2026-06-13",
+          "eta": "2026-06-14",
+          "actual_departure": null,
+          "actual_arrival": null
+        },
+        "route": {
+          "origin": "HKG",
+          "destination": "WAW",
+          "transit_points": ["FRA", "VIE"]
+        },
+        "events": [
+          {
+            "event_code": "RCS",
+            "event_name": "Shipment received",
+            "normalized_status": "received",
+            "normalized_status_ua": "Вантаж прийнято складом / авіалінією.",
+            "location": "HKG",
+            "datetime": "2026-06-07",
+            "raw_datetime": "07 Jun 2026",
+            "timezone": null,
+            "timezone_confidence": "unknown",
+            "raw_text": "07 Jun 2026 | RCS | HKG | Shipment received"
+          }
+        ]
+      },
+      "source": {
+        "primary_source": "track_trace_air",
+        "final_source": "track_trace_air",
+        "url": "https://www.lufthansa-cargo.com/...",
+        "retrieved_at": "2026-06-16T12:00:00+00:00"
+      },
+      "quality": {
+        "confidence": 0.8,
+        "data_complete": false,
+        "missing_fields": ["actual_departure", "actual_arrival"],
+        "warnings": []
+      },
+      "delay": {
+        "delay_detected": true,
+        "delay_days": 2,
+        "risk_level": "medium"
+      },
+      "status_change": {
+        "changed": true,
+        "previous_status": "in_transit",
+        "previous_status_ua": "Вантаж у транзиті.",
+        "current_status": "departed",
+        "current_status_ua": "Вантаж або судно/рейс відправлено."
+      },
+      "errors": [],
+      "debug": null
+    }
+  ]
+}
+```
+
+### Quality block
+
+The `quality` block appears on every result regardless of success or failure.
+
+| Field | Description |
+|-------|-------------|
+| `confidence` | Score from 0.0 to 1.0. How complete and reliable the data is. |
+| `data_complete` | `true` if all key fields are present (current_status, last_event, dates, route). |
+| `missing_fields` | List of field names that are absent or empty. |
+| `warnings` | List of warning codes. See table below. |
+
+**Possible warnings:**
+
+| Warning | Meaning |
+|---------|---------|
+| `invalid_check_digit` | AWB or container number failed check digit validation. Number is still processed. |
+| `partial_route` | Origin or destination is missing from the route block. Events may still be present. |
+
+### Delay block
+
+The `delay` block is added when `dates.eta` is set and delivery has not happened yet.
+
+| `risk_level` | Meaning |
+|-------------|---------|
+| `none` | ETA is in the future or delivery already happened |
+| `low` | 1–2 days past ETA |
+| `medium` | 3–7 days past ETA |
+| `high` | 8–14 days past ETA |
+| `critical` | More than 14 days past ETA |
+| `unknown` | ETA is set but could not be compared to today |
+
+### Event datetime and timezone
+
+All normalized datetimes are in ISO 8601 format: `2026-06-13T14:30:00` or `2026-06-13`.
+Timezone is stored separately, not embedded in the datetime string (unless the source
+provides it as `2026-06-13T14:30:00+02:00`).
+
+| Field | Example | Meaning |
+|-------|---------|---------|
+| `datetime` | `"2026-06-13T14:30:00"` | Normalized ISO 8601 date or datetime |
+| `raw_datetime` | `"13 Jun 2026 14:30"` | Original string from the source, unchanged |
+| `timezone` | `"+02:00"` or `null` | UTC offset if the source provided it |
+| `timezone_confidence` | `"source_provided"` or `"unknown"` | Whether timezone came from the data or is missing |
+
+### Debug log
+
+Only present when `?debug=true` is passed. Omitted from the response otherwise.
+
+```json
+"debug": {
+  "shipment_number": "MSKU1880987",
+  "steps": [
+    {
+      "step": "detect",
+      "status": "success",
+      "result": "sea_container"
+    },
+    {
+      "step": "maersk_api",
+      "status": "failed",
+      "error": "disabled"
+    },
+    {
+      "step": "track_trace_container",
+      "status": "success",
+      "url": "https://www.maersk.com/tracking/MSKU1880987",
+      "result": "attempt=1"
+    },
+    {
+      "step": "parse_events",
+      "status": "success",
+      "events_count": 6
+    }
+  ]
+}
+```
+
+Possible step statuses: `success`, `failed`, `retry`, `skipped`.
 
 ---
 
@@ -367,52 +662,46 @@ useful interchange history for them, so they go through `TrackTraceContainerConn
 
 | Format | Detected as | Example |
 |--------|-------------|---------|
-| `\d{3}-?\d{8}` | `air_awb` | `501-20285134` |
-| `[A-Z]{4}\d{7}` | `sea_container` | `TLLU4912250` |
-| Anything else | `unknown` | → `INVALID_FORMAT` error |
+| `\d{3}-?\d{8}` | `air_awb` | `501-20285134`, `50120285134` |
+| `[A-Z]{4}\d{7}` | `sea_container` | `TLLU4912250`, `MSKU1880987` |
+| Anything else | `unknown` | Returns `INVALID_FORMAT` |
 
 For AWB numbers, the first 3 digits are the airline prefix. We look up the airline name and
-IATA code in `data/awb_prefixes.json` (covers ~32 major carriers).
+IATA code in `data/awb_prefixes.json` (~32 major carriers). The 8th digit is the check digit
+(first 7 digits mod 7). A mismatch adds `invalid_check_digit` to `quality.warnings`.
 
 For containers, the first 4 letters are the owner code (BIC code). We look up the shipping
-line in a built-in mapping.
-
-ISO 6346 check digit validation is performed on container numbers. An invalid check digit
-produces a warning in the `quality.warnings` field — the number is still processed, not rejected.
+line in a built-in mapping. ISO 6346 check digit validation runs on all container numbers.
+A mismatch adds `invalid_check_digit` to `quality.warnings` — the number is still processed.
 
 ---
 
-## Status Normalization
+## Status Codes
 
-Every tracking source uses its own status names. We normalize them all to a common set of
-values so that your application only needs to handle one vocabulary.
+Every tracking event and result has a `normalized_status` in English and `normalized_status_ua`
+in Ukrainian.
 
-Normalization works in two stages:
+| Code | Ukrainian | Meaning |
+|------|-----------|---------|
+| `not_found` | Номер валідний, але tracking-дані не знайдено. | Valid number, no data found |
+| `created` | Запис або booking створено. | Booking or record was created |
+| `booked` | Вантаж заброньований у перевізника. | Cargo is booked with the carrier |
+| `received` | Вантаж прийнято складом / авіалінією. | Received at warehouse or terminal |
+| `in_origin_terminal` | Вантаж на origin terminal. | At the origin terminal |
+| `departed` | Вантаж або судно/рейс відправлено. | Departed |
+| `in_transit` | Вантаж у транзиті. | In transit |
+| `arrived` | Вантаж прибув у порт / аеропорт. | Arrived at port or airport |
+| `customs` | Митні процедури. | Customs processing |
+| `ready_for_pickup` | Готовий до отримання. | Ready to be collected |
+| `delivered` | Доставлено / видано. | Delivered to recipient |
+| `container_picked_up` | Порожній або завантажений контейнер забраний. | Container picked up |
+| `container_returned` | Порожній контейнер повернуто. | Empty container returned |
+| `exception` | Проблема, затримка, hold, failed event. | Delay, hold, or failed event |
+| `unknown` | Статус не вдалося класифікувати. | Status could not be classified |
 
-1. **Deterministic lookup**: A dictionary of known raw status strings maps to standard codes.
-   IATA event codes (DEP, RCS, RCF, DLV, etc.) and common text patterns are covered here.
-
-2. **AI fallback (OpenRouter)**: If the lookup returns "unknown", we send the raw status to
-   an LLM via OpenRouter and ask it to classify the status. This covers unusual phrases from
-   carrier websites that are not in our dictionary. Requires `OPENROUTER_API_KEY`.
-
-| Code | Meaning |
-|------|---------|
-| `not_found` | Number is valid but no tracking data exists |
-| `created` | Booking or record was created |
-| `booked` | Cargo is booked with the carrier |
-| `received` | Cargo received at warehouse or terminal |
-| `in_origin_terminal` | Cargo is at the origin terminal |
-| `departed` | Cargo or vessel/flight has departed |
-| `in_transit` | Cargo is in transit |
-| `arrived` | Cargo arrived at port or airport |
-| `customs` | Customs processing in progress |
-| `ready_for_pickup` | Ready to be collected |
-| `delivered` | Delivered to recipient |
-| `container_picked_up` | Empty or loaded container picked up |
-| `container_returned` | Empty container returned to depot |
-| `exception` | Delay, hold, or failed event |
-| `unknown` | Status could not be classified |
+**Normalization** works in two steps:
+1. Dictionary lookup of known raw status strings and IATA event codes (DEP, RCS, RCF, DLV, etc.)
+2. AI fallback via OpenRouter if the dictionary returns `unknown` — requires `OPENROUTER_API_KEY`
 
 ---
 
@@ -429,9 +718,11 @@ Normalization works in two stages:
 | `PARSING_FAILED` | Response received but could not be parsed |
 | `PARTIAL_DATA` | Data found but some key fields are missing |
 
+Each error has three fields: `code`, `message` (human-readable), and `source` (which connector raised it).
+
 ---
 
-## Connector Routing Summary
+## Connector Routing
 
 | Number type | Prefix / pattern | Connector order |
 |-------------|-----------------|-----------------|
@@ -445,6 +736,122 @@ Normalization works in two stages:
 | Container | all others | TrackTraceContainer → fallback |
 
 *MaerskAPI is only active when `MAERSK_API_ENABLED=true`.
+
+---
+
+## Connectors
+
+### TrackTraceAirConnector — AWB tracking via track-trace.com
+
+**Used for:** All AWB numbers except Air France (074) and KLM (076).
+
+**How it works (two-step):**
+
+First, we POST to `track-trace.com/aircargo/track_form` with the AWB number. This internal
+form endpoint returns an HTML fragment with `#direct-form` (the carrier tracking URL) and
+`#direct-type` (redirect, form, or problem).
+
+If we get a URL, we open it with Playwright (headless Chromium) and parse the tracking table.
+
+**Why not scrape track-trace.com directly?**
+
+track-trace.com renders results inside a JavaScript iframe. The tracking data is not in the
+initial HTML. By hitting `track_form` directly, we get the carrier URL as plain text and
+skip the iframe entirely.
+
+**Carrier-specific parsers:**
+- **ENXT** (Lufthansa, many others): Angular SPA with a flight-legs table. We skip detail
+  rows and extract origin, destination, flight number, date, and IATA status code per leg.
+- **Lufthansa-cargo.com direct**: Playwright gets a login shell — their bot fingerprinting
+  blocks headless browsers. Returns `NOT_FOUND`.
+- **Generic**: For any other carrier page, we scan all HTML tables and extract rows that
+  contain a date and a description.
+
+If track-trace.com returns `type=problem`, we return `NOT_FOUND` — this is a definitive
+"no data" answer from them, not a temporary failure.
+
+---
+
+### TrackTraceContainerConnector — container tracking via track-trace.com
+
+**Used for:** Container numbers that are not COSCO, Maersk, or leasing-only prefixes.
+
+Same two-step approach as the air connector. For Triton containers (TRHU, TLLU), the site
+redirects to `tritoncontainer.com` which returns a simple HTML table — no Playwright needed.
+
+**Triton (tritoncontainer.com):**
+The table is transposed — column 0 is a field label, each column after that is one interchange
+event. Triton shows when containers were hired out and returned, not shipping routes.
+
+**Maersk redirect:** If track-trace.com tries to redirect to Maersk, we immediately raise
+`SOURCE_UNAVAILABLE` and skip Playwright. The right path is the Maersk API.
+
+---
+
+### MaerskAPIConnector — Maersk Track & Trace API
+
+**Used for:** MSKU, MAEU, MAEI container prefixes (disabled by default).
+
+Maersk's website is protected by Akamai Bot Manager — Playwright gets blocked. The official
+API gives structured JSON and is the supported way to get Maersk data.
+
+Set `MAERSK_API_ENABLED=true` and add your credentials to enable it.
+Request access at: https://developer.maersk.com
+
+---
+
+### CoscoConnector — COSCO Shipping Lines portal
+
+**Used for:** CAIU, CBHU, CCLU, CXDU, FCIU prefixes.
+
+We navigate to `elines.coscoshipping.com/scct` with Playwright, pass the container number
+as a URL parameter, click Search, and wait 6 seconds for the Vue.js SPA to load results.
+
+**Why not use the COSCO API?**
+
+COSCO has a `shipmentExists` endpoint but it returns base64-encoded data that appears to be
+encrypted with a custom algorithm. XOR decoding with several key candidates did not work.
+The public tracking UI gives us the same data without reverse engineering.
+
+---
+
+### AirFranceConnector — Air France / KLM Cargo (074, 076)
+
+Returns `LOGIN_REQUIRED`. Their tracking API requires OAuth credentials and is protected by
+Akamai Bot Manager — both API and web scraping are blocked without authentication.
+
+If you get API credentials from the Air France Cargo developer portal, replace this connector
+with an authenticated httpx client using a Bearer token. The connector structure is ready.
+
+---
+
+### CarrierFallbackConnector — last resort
+
+Used when all other connectors fail or do not apply. Returns `SOURCE_UNAVAILABLE`.
+Every shipment always gets a result — the pipeline never throws an unhandled exception.
+
+---
+
+### Leasing company detection
+
+Containers from leasing companies (UETU, TTNU, TEXU, TGHU, etc.) are not operated by shipping
+lines. There is no shipping route to track for them. The container could be on any vessel
+operated by any carrier.
+
+We return `SOURCE_UNAVAILABLE` with a clear message explaining this instead of returning
+empty results silently.
+
+**TRHU and TLLU are exceptions** — they belong to Triton, but `tritoncontainer.com` returns
+useful interchange history for them, so they go through `TrackTraceContainerConnector`.
+
+---
+
+## Web UI
+
+After `make ui-build`, a browser interface is available at `http://localhost:8000/ui/`.
+
+It lets you upload a CSV or Excel file (or paste JSON directly), run tracking, and export
+results to Excel. Webhook URL and debug mode can be toggled from the UI.
 
 ---
 
@@ -479,52 +886,62 @@ class YourCarrierConnector(BaseConnector):
 ## Running Tests
 
 ```bash
-make test        # run all tests
-make test-v      # verbose output
+    make test        # run all tests
+    make test-v      # verbose output
 ```
 
-87 tests cover: number detection, status normalization, delay detection, API endpoints,
-service pipeline, and per-connector behavior (with mocks for external sources).
+133 tests cover: number detection (including ISO 6346 and AWB check digit), status normalization,
+delay detection, status change detection, Ukrainian translations, file parsing, API endpoints,
+service pipeline, quality block, and per-connector behavior (with mocks for external sources).
 
 ---
 
-## Bonus Features Implemented
+## Environment Variables
 
-- **Redis caching** — results are cached by shipment number with a configurable TTL.
-  Cache is skipped silently if Redis is not available.
-- **Delay detection** — if ETA is set and the current date is past it with no delivery,
-  `delay_detected: true` and a `risk_level` (low / medium / high) are added to the result.
-- **Debug mode** — `?debug=true` adds a step-by-step log to each result showing which
-  connectors were tried and what happened.
-- **Semaphore limiting** — max 3 concurrent external requests to avoid overloading sources.
+Copy `.env.example` to `.env` and fill in what you need.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | `""` | Enables AI status normalization fallback. Optional. |
+| `OPENROUTER_MODEL` | `openai/gpt-4o-mini` | Which model to use for AI normalization. |
+| `MAERSK_API_ENABLED` | `false` | Set to `true` to enable Maersk API connector. |
+| `MAERSK_CONSUMER_KEY` | `""` | Maersk API consumer key. Required if enabled. |
+| `MAERSK_CLIENT_SECRET` | `""` | Maersk API client secret. Required if enabled. |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL. |
+| `CACHE_TTL_SECONDS` | `300` | How long tracking results are cached (5 minutes). |
+| `STATUS_TTL_SECONDS` | `604800` | How long status history is kept for change detection (7 days). |
+| `REQUEST_TIMEOUT_SECONDS` | `30` | Per-connector HTTP timeout. |
+| `MAX_CONCURRENT_REQUESTS` | `3` | Max shipments processed in parallel (semaphore). |
+| `RETRY_ATTEMPTS` | `2` | How many times to retry a connector on `SOURCE_UNAVAILABLE` or `TIMEOUT`. |
+| `PLAYWRIGHT_RENDER_WAIT_SECONDS` | `5` | Seconds to wait for JavaScript to render after page load. |
+| `LOG_LEVEL` | `INFO` | Logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| `DEBUG` | `false` | FastAPI debug mode. Do not use in production. |
+| `LANGSMITH_TRACING` | `false` | Set to `true` to enable LangSmith tracing for AI calls. |
+| `LANGSMITH_API_KEY` | `""` | LangSmith API key. Required when tracing is enabled. |
+| `LANGSMITH_PROJECT` | `cargo-tracking` | LangSmith project name for grouping traces. |
+
+### LangSmith tracing
+
+When `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` is set, every OpenRouter AI call is
+traced automatically via `langsmith.wrappers.wrap_openai`. Traces appear in your LangSmith
+dashboard grouped under `LANGSMITH_PROJECT`.
+
+`langsmith` is included in the default dependencies (`uv sync` installs it).
+If the flag is set but the key is missing, the client simply skips tracing — no crash.
 
 ---
 
 ## Known Limitations
 
 - **Air France / KLM (074, 076)**: Their tracking API requires OAuth credentials protected
-  by Akamai. Returns `LOGIN_REQUIRED`. No public scraping path available.
+  by Akamai. Returns `LOGIN_REQUIRED`. No public scraping path exists.
 - **Maersk web scraping**: Blocked by Akamai Bot Manager. Use the official API with credentials.
 - **Lufthansa direct site**: Bot fingerprinting blocks Playwright. The ENXT portal (used as
-  a fallback by track-trace.com) works for most Lufthansa AWBs.
+  a fallback via track-trace.com) works for most Lufthansa AWBs.
 - **Leasing containers** (UETU, TTNU, etc.): These are not shipping lines. Route tracking
-  requires the shipping line's bill of lading number.
+  requires the shipping line's bill of lading number, not the container number.
 - **COSCO inactive containers**: Numbers older than ~6 months may not appear in the SCCT
   portal even if they are valid.
+- **Periodic polling without Redis**: If Redis is not available, `poll_interval_minutes` is
+  accepted but the subscription is not saved. The initial tracking still runs normally.
 - **CargoAI**: Supports 220+ airlines via API, but requires a paid API key. Not integrated.
-
----
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and fill in what you need:
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENROUTER_API_KEY` | Optional | Enables AI status normalization fallback |
-| `MAERSK_API_ENABLED` | Optional | Set to `true` to enable Maersk API connector |
-| `MAERSK_CONSUMER_KEY` | If enabled | Maersk API consumer key |
-| `MAERSK_CLIENT_SECRET` | If enabled | Maersk API client secret |
-| `REDIS_URL` | Optional | Default: `redis://localhost:6379/0` |
-| `CACHE_TTL_SECONDS` | Optional | How long to cache results (default: 3600) |
-| `REQUEST_TIMEOUT_SECONDS` | Optional | Per-connector timeout (default: 60) |

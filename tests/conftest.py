@@ -7,7 +7,9 @@ from app.models.response import DateBlock, RouteBlock, TrackingData, TrackingEve
 
 @pytest.fixture
 async def client() -> AsyncClient:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         yield ac
 
 
@@ -16,7 +18,9 @@ def sample_maersk_tracking() -> TrackingData:
     return TrackingData(
         current_status="in_transit",
         raw_status="Loaded on vessel",
-        dates=DateBlock(etd="2026-06-01T10:00:00+00:00", eta="2026-06-20T08:00:00+00:00"),
+        dates=DateBlock(
+            etd="2026-06-01T10:00:00+00:00", eta="2026-06-20T08:00:00+00:00"
+        ),
         route=RouteBlock(origin="CNSHA", destination="NLRTM", transit_points=["SGSIN"]),
         events=[
             TrackingEvent(

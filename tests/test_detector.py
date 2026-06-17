@@ -3,28 +3,36 @@ import pytest
 from app.core.detector import detect
 
 
-@pytest.mark.parametrize("number,expected_type,expected_carrier_code", [
-    ("080-38652331", "air_awb", "CX"),
-    ("08038652331", "air_awb", "CX"),
-    ("501-20285134", "air_awb", "EK"),
-    ("020-26227456", "air_awb", "LH"),
-    ("080-38652342", "air_awb", "CX"),
-    ("080-38653985", "air_awb", "CX"),
-])
-def test_valid_awb_numbers(number: str, expected_type: str, expected_carrier_code: str) -> None:
+@pytest.mark.parametrize(
+    "number,expected_type,expected_carrier_code",
+    [
+        ("080-38652331", "air_awb", "CX"),
+        ("08038652331", "air_awb", "CX"),
+        ("501-20285134", "air_awb", "EK"),
+        ("020-26227456", "air_awb", "LH"),
+        ("080-38652342", "air_awb", "CX"),
+        ("080-38653985", "air_awb", "CX"),
+    ],
+)
+def test_valid_awb_numbers(
+    number: str, expected_type: str, expected_carrier_code: str
+) -> None:
     result = detect(number)
     assert result.type == expected_type
     assert result.carrier is not None
     assert result.carrier.code == expected_carrier_code
 
 
-@pytest.mark.parametrize("number,expected_type", [
-    ("MSKU1880987", "sea_container"),
-    ("CAIU7533723", "sea_container"),
-    ("TLLU4912250", "sea_container"),
-    ("UETU5915440", "sea_container"),
-    ("TRHU6714051", "sea_container"),
-])
+@pytest.mark.parametrize(
+    "number,expected_type",
+    [
+        ("MSKU1880987", "sea_container"),
+        ("CAIU7533723", "sea_container"),
+        ("TLLU4912250", "sea_container"),
+        ("UETU5915440", "sea_container"),
+        ("TRHU6714051", "sea_container"),
+    ],
+)
 def test_valid_container_numbers(number: str, expected_type: str) -> None:
     result = detect(number)
     assert result.type == expected_type
@@ -79,3 +87,30 @@ def test_lowercase_input_normalized() -> None:
     result = detect("msku1880987")
     assert result.type == "sea_container"
     assert result.normalized_number == "MSKU1880987"
+
+
+def test_container_invalid_check_digit_warning() -> None:
+    # MSKU1880987 has valid check digit 7; MSKU1880980 has wrong check digit
+    result = detect("MSKU1880980")
+    assert result.type == "sea_container"
+    assert "invalid_check_digit" in result.warnings
+
+
+def test_container_valid_check_digit_no_warning() -> None:
+    result = detect("MSKU1880987")
+    assert result.type == "sea_container"
+    assert "invalid_check_digit" not in result.warnings
+
+
+def test_awb_invalid_check_digit_warning() -> None:
+    # 080-38652330: first 7 digits = 3865233, 3865233 % 7 = 1, so 0 is wrong
+    result = detect("080-38652330")
+    assert result.type == "air_awb"
+    assert "invalid_check_digit" in result.warnings
+
+
+def test_awb_valid_check_digit_no_warning() -> None:
+    # 080-38652331: check digit = 1 (correct)
+    result = detect("080-38652331")
+    assert result.type == "air_awb"
+    assert "invalid_check_digit" not in result.warnings

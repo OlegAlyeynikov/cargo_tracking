@@ -1,0 +1,8 @@
+id,number,type,carrier,comment
+air-1,501-20285134,air_awb,,Emirates SkyCargo — returns real flight events
+sea-1,TRHU6714051,sea_container,,Triton — returns interchange history via tritoncontainer.com
+sea-2,TLLU4912250,sea_container,,Triton — invalid check digit warning example
+no-data-1,080-38652331,air_awb,,Cathay Pacific — NOT_FOUND at track-trace.com
+no-data-2,MSKU1880987,sea_container,,Maersk — SOURCE_UNAVAILABLE (needs MAERSK_API_ENABLED=true)
+leasing-1,UETU5915440,sea_container,,Textainer leasing — SOURCE_UNAVAILABLE by design
+invalid-1,NOTANUMBER,,,Invalid format example

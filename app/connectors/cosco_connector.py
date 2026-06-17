@@ -8,9 +8,15 @@ from playwright.async_api import async_playwright
 
 from app.config import settings
 from app.connectors.base import BaseConnector
-from app.core.exceptions import NotFoundError, SourceUnavailableError, TimeoutError
+from app.core.exceptions import NotFoundError, TimeoutError
 from app.core.normalizer import normalize_status
-from app.models.response import DateBlock, LastEvent, RouteBlock, TrackingData, TrackingEvent
+from app.models.response import (
+    DateBlock,
+    RouteBlock,
+    TrackingData,
+    TrackingEvent,
+    last_event_from,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +41,14 @@ class CoscoConnector(BaseConnector):
     async def fetch(self, number: str, shipment_type: str) -> TrackingData:
         try:
             return await asyncio.wait_for(
-                _scrape(number),
+                _scrape(number, self.save_debug_html),
                 timeout=settings.request_timeout_seconds,
             )
         except asyncio.TimeoutError:
             raise TimeoutError(self.name)
 
 
-async def _scrape(number: str) -> TrackingData:
+async def _scrape(number: str, save_debug_html=None) -> TrackingData:
     url = f"{_SCCT_BASE}?lang=en&trackingType=CNTR&number={number}"
 
     async with async_playwright() as p:
@@ -56,17 +62,21 @@ async def _scrape(number: str) -> TrackingData:
             )
 
             try:
-                await page.goto(url, timeout=settings.request_timeout_seconds * 1000, wait_until="networkidle")
+                await page.goto(
+                    url,
+                    timeout=settings.request_timeout_seconds * 1000,
+                    wait_until="networkidle",
+                )
             except PlaywrightTimeout:
                 raise TimeoutError("cosco")
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(settings.playwright_render_wait_seconds // 2 or 1)
 
             # Click Search if button present
             search_btn = page.locator("button").filter(has_text="Search")
             if await search_btn.count() > 0:
                 await search_btn.first.click()
-                await asyncio.sleep(6)
+                await asyncio.sleep(settings.playwright_render_wait_seconds)
 
             html = await page.content()
         finally:
@@ -75,23 +85,24 @@ async def _scrape(number: str) -> TrackingData:
     page_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True).lower()
 
     if any(phrase in page_text for phrase in _NO_RESULTS_TEXTS):
+        if save_debug_html:
+            save_debug_html(number, html)
         raise NotFoundError(number, "cosco")
 
     events = _parse_cosco_html(html, number)
     if not events:
+        if save_debug_html:
+            save_debug_html(number, html)
         raise NotFoundError(number, "cosco")
 
-    known = [e for e in events if e.normalized_status and e.normalized_status != "unknown"]
+    known = [
+        e for e in events if e.normalized_status and e.normalized_status != "unknown"
+    ]
     last = known[-1] if known else events[-1]
     return TrackingData(
         current_status=last.normalized_status,
         raw_status=last.event_name,
-        last_event=LastEvent(
-            event_code=last.event_code,
-            event_name=last.event_name,
-            location=last.location,
-            datetime=last.datetime,
-        ),
+        last_event=last_event_from(last),
         dates=DateBlock(),
         route=RouteBlock(),
         events=events,
@@ -103,7 +114,9 @@ def _parse_cosco_html(html: str, number: str) -> list[TrackingEvent]:
     events: list[TrackingEvent] = []
 
     # Try milestone/step elements first (COSCO uses card-based UI)
-    for el in soup.find_all(attrs={"class": re.compile(r"milestone|step|event|track", re.I)}):
+    for el in soup.find_all(
+        attrs={"class": re.compile(r"milestone|step|event|track", re.I)}
+    ):
         text = el.get_text(" ", strip=True)
         if not text or len(text) < 5:
             continue
@@ -112,13 +125,15 @@ def _parse_cosco_html(html: str, number: str) -> list[TrackingEvent]:
         desc = text.replace(date_val, "").strip() if date_val else text
         if not desc:
             continue
-        events.append(TrackingEvent(
-            event_name=desc[:200],
-            normalized_status=normalize_status(desc, "sea_container"),
-            datetime=date_val,
-            raw_datetime=date_val,
-            raw_text=text[:300],
-        ))
+        events.append(
+            TrackingEvent(
+                event_name=desc[:200],
+                normalized_status=normalize_status(desc, "sea_container"),
+                datetime=date_val,
+                raw_datetime=date_val,
+                raw_text=text[:300],
+            )
+        )
 
     if events:
         return events
@@ -138,17 +153,20 @@ def _parse_cosco_html(html: str, number: str) -> list[TrackingEvent]:
                 (c for c in non_empty if not _DATE_RE.search(c) and len(c) > 3), None
             )
             loc_val = next(
-                (c for c in non_empty if c not in (date_val, desc_val) and len(c) > 2), None
+                (c for c in non_empty if c not in (date_val, desc_val) and len(c) > 2),
+                None,
             )
             if not desc_val:
                 continue
-            events.append(TrackingEvent(
-                event_name=desc_val,
-                normalized_status=normalize_status(desc_val, "sea_container"),
-                location=loc_val,
-                datetime=date_val,
-                raw_datetime=date_val,
-                raw_text=" | ".join(non_empty),
-            ))
+            events.append(
+                TrackingEvent(
+                    event_name=desc_val,
+                    normalized_status=normalize_status(desc_val, "sea_container"),
+                    location=loc_val,
+                    datetime=date_val,
+                    raw_datetime=date_val,
+                    raw_text=" | ".join(non_empty),
+                )
+            )
 
     return events

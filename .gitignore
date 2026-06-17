@@ -37,3 +37,7 @@ Thumbs.db
 # Playwright browser downloads
 playwright/.local-chromium/
 task.docx
+
+# Frontend build artifacts
+frontend/node_modules/
+app/static/ui/

@@ -1,34 +1,37 @@
 {
-  "request_id": "tracking-20260616-120000-a1b2c3",
-  "checked_at": "2026-06-16T12:00:00+00:00",
+  "request_id": "tracking-20260617-084745-43e241",
+  "checked_at": "2026-06-17T08:47:45Z",
   "summary": {
-    "total": 5,
+    "total": 3,
     "success": 2,
-    "failed": 3
+    "failed": 1
   },
   "results": [
     {
       "input": {
-        "id": "internal-002",
+        "id": "awb-1",
         "number": "501-20285134"
       },
       "detected": {
         "type": "air_awb",
         "normalized_number": "501-20285134",
         "carrier": {
-          "name": "Lufthansa Cargo",
-          "code": "LH",
+          "name": "Emirates SkyCargo",
+          "code": "EK",
           "source": "awb_prefix"
         }
       },
       "tracking": {
         "current_status": "departed",
-        "raw_status": "Flight LH8082 - DEP",
+        "current_status_ua": "Вантаж або судно/рейс відправлено.",
+        "raw_status": "Flight 7L280 - DEP",
         "last_event": {
           "event_code": "DEP",
-          "event_name": "Flight LH8082 - DEP",
-          "location": "VIE → WAW",
-          "datetime": "13 Jun 2026",
+          "event_name": "Flight 7L280 - DEP",
+          "location": "GYD → VIE",
+          "datetime": "2026-05-20",
+          "timezone": null,
+          "timezone_confidence": "unknown",
           "is_actual": true
         },
         "dates": {
@@ -44,77 +47,84 @@
         },
         "events": [
           {
-            "event_code": "FOH",
-            "event_name": "Flight LH8474 - FOH",
-            "normalized_status": "in_origin_terminal",
-            "location": "HKG → FRA",
-            "datetime": "07 Jun 2026",
-            "raw_datetime": "07 Jun 2026",
-            "raw_text": "1 | HKG | FRA | LH | 8474 | 07 Jun 2026 | 1.331 | 197 | 1 | FOH"
-          },
-          {
-            "event_code": "FWD",
-            "event_name": "Flight LH3601 - FWD",
-            "normalized_status": "in_transit",
-            "location": "FRA → VIE",
-            "datetime": "11 Jun 2026",
-            "raw_datetime": "11 Jun 2026",
-            "raw_text": "2 | FRA | VIE | LH | 3601 | 11 Jun 2026 | 1.331 | 197 | 1 | FWD"
+            "event_code": "RCF",
+            "event_name": "Flight 7L122 - RCF",
+            "normalized_status": "arrived",
+            "normalized_status_ua": "Вантаж прибув у порт / аеропорт.",
+            "location": "ICN → GYD",
+            "datetime": "2026-05-15",
+            "raw_datetime": "15.05.2026",
+            "timezone": null,
+            "timezone_confidence": "unknown",
+            "raw_text": "1 | ICN | GYD | 7L | 122 | 15.05.2026 | 197 | 1.331 | 1 | RCF | 644.05 kg"
           },
           {
             "event_code": "DEP",
-            "event_name": "Flight LH8082 - DEP",
+            "event_name": "Flight 7L280 - DEP",
             "normalized_status": "departed",
-            "location": "VIE → WAW",
-            "datetime": "13 Jun 2026",
-            "raw_datetime": "13 Jun 2026",
-            "raw_text": "3 | VIE | WAW | LH | 8082 | 13 Jun 2026 | 1.331 | 197 | 1 | DEP"
+            "normalized_status_ua": "Вантаж або судно/рейс відправлено.",
+            "location": "GYD → VIE",
+            "datetime": "2026-05-20",
+            "raw_datetime": "20.05.2026",
+            "timezone": null,
+            "timezone_confidence": "unknown",
+            "raw_text": "2 | GYD | VIE | 7L | 280 | 20.05.2026 | 197 | 1.331 | 1 | DEP | 279.02 kg"
           }
-        ],
-        "delay_info": {
-          "delay_detected": false,
-          "risk_level": null,
-          "eta_original": null,
-          "checked_at": "2026-06-16T12:00:00+00:00"
-        }
+        ]
       },
       "source": {
         "primary_source": "track_trace_air",
         "final_source": "track_trace_air",
         "url": null,
-        "retrieved_at": "2026-06-16T12:00:00+00:00"
+        "retrieved_at": "2026-06-17T08:47:53Z"
       },
       "quality": {
-        "confidence": 0.7,
+        "confidence": 0.4,
         "data_complete": false,
-        "missing_fields": ["etd", "eta", "actual_departure", "actual_arrival"],
+        "missing_fields": ["eta", "etd", "origin", "destination"],
         "warnings": []
       },
-      "errors": [],
-      "debug": null
+      "delay": null,
+      "status_change": {
+        "changed": false,
+        "previous_status": "departed",
+        "previous_status_ua": "Вантаж або судно/рейс відправлено.",
+        "current_status": "departed",
+        "current_status_ua": "Вантаж або судно/рейс відправлено."
+      },
+      "errors": [
+        {
+          "code": "PARTIAL_DATA",
+          "message": "Data found at 'track_trace_air' but key fields are missing: eta, etd, origin, destination",
+          "source": "track_trace_air"
+        }
+      ]
     },
     {
       "input": {
-        "id": "internal-006",
-        "number": "TLLU4912250"
+        "id": "sea-1",
+        "number": "TRHU6714051"
       },
       "detected": {
         "type": "sea_container",
-        "normalized_number": "TLLU4912250",
+        "normalized_number": "TRHU6714051",
         "carrier": {
           "name": "Triton International",
-          "code": "TLLU",
+          "code": "TRHU",
           "source": "bic_prefix"
         }
       },
       "tracking": {
-        "current_status": "in_origin_terminal",
-        "raw_status": "Full Container Lease Out - On Hire (Hapag-Lloyd)",
+        "current_status": "container_picked_up",
+        "current_status_ua": "Порожній або завантажений контейнер забраний.",
+        "raw_status": "Lease Out - On Hire (CMA CGM S.A.)",
         "last_event": {
           "event_code": null,
-          "event_name": "Full Container Lease Out - On Hire (Hapag-Lloyd)",
-          "location": "SGSIN",
-          "datetime": "15-Mar-2024",
+          "event_name": "Lease Out - On Hire (CMA CGM S.A.)",
+          "location": "Qingdao",
+          "datetime": "2021-01-19",
+          "timezone": null,
+          "timezone_confidence": "unknown",
           "is_actual": true
         },
         "dates": {
@@ -131,136 +141,73 @@
         "events": [
           {
             "event_code": null,
-            "event_name": "Full Container Lease Out - On Hire (Hapag-Lloyd)",
-            "normalized_status": "in_origin_terminal",
-            "location": "SGSIN",
-            "datetime": "15-Mar-2024",
-            "raw_datetime": "15-Mar-2024",
-            "raw_text": "Full Container Lease Out | 15-Mar-2024 | SGSIN"
+            "event_name": "Reposition - On Hire (Triton Positioning)",
+            "normalized_status": "in_transit",
+            "normalized_status_ua": "Вантаж у транзиті.",
+            "location": "Qingdao",
+            "datetime": "2021-01-19",
+            "raw_datetime": "19-Jan-2021",
+            "timezone": null,
+            "timezone_confidence": "unknown",
+            "raw_text": "Reposition | 19-Jan-2021 | Qingdao"
           },
           {
             "event_code": null,
-            "event_name": "Full Container Lease Out - Off Hire (Hapag-Lloyd)",
-            "normalized_status": "arrived",
-            "location": "NLRTM",
-            "datetime": "02-Nov-2024",
-            "raw_datetime": "02-Nov-2024",
-            "raw_text": "Full Container Lease Out | 02-Nov-2024 | NLRTM"
+            "event_name": "Turn In - Off Hire (CXIC STAR CONTAINER)",
+            "normalized_status": "container_returned",
+            "normalized_status_ua": "Порожній контейнер повернуто.",
+            "location": "Qingdao",
+            "datetime": "2021-01-19",
+            "raw_datetime": "19-Jan-2021",
+            "timezone": null,
+            "timezone_confidence": "unknown",
+            "raw_text": "Turn In | 19-Jan-2021 | Qingdao"
           },
           {
             "event_code": null,
-            "event_name": "Full Container Lease Out - On Hire (MSC)",
-            "normalized_status": "in_origin_terminal",
-            "location": "NLRTM",
-            "datetime": "18-Nov-2024",
-            "raw_datetime": "18-Nov-2024",
-            "raw_text": "Full Container Lease Out | 18-Nov-2024 | NLRTM"
+            "event_name": "Lease Out - On Hire (CMA CGM S.A.)",
+            "normalized_status": "container_picked_up",
+            "normalized_status_ua": "Порожній або завантажений контейнер забраний.",
+            "location": "Qingdao",
+            "datetime": "2021-01-19",
+            "raw_datetime": "19-Jan-2021",
+            "timezone": null,
+            "timezone_confidence": "unknown",
+            "raw_text": "Lease Out | 19-Jan-2021 | Qingdao"
           }
-        ],
-        "delay_info": {
-          "delay_detected": false,
-          "risk_level": null,
-          "eta_original": null,
-          "checked_at": "2026-06-16T12:00:00+00:00"
-        }
+        ]
       },
       "source": {
         "primary_source": "track_trace_container",
         "final_source": "track_trace_container",
         "url": null,
-        "retrieved_at": "2026-06-16T12:00:00+00:00"
+        "retrieved_at": "2026-06-17T08:48:03Z"
       },
       "quality": {
-        "confidence": 0.6,
+        "confidence": 0.4,
         "data_complete": false,
-        "missing_fields": ["etd", "eta", "actual_departure", "actual_arrival"],
-        "warnings": [
-          "Container belongs to a leasing company (Triton International). Events show interchange history, not shipping route."
-        ]
-      },
-      "errors": [],
-      "debug": null
-    },
-    {
-      "input": {
-        "id": "internal-001",
-        "number": "080-38652331"
-      },
-      "detected": {
-        "type": "air_awb",
-        "normalized_number": "080-38652331",
-        "carrier": {
-          "name": "Cathay Pacific Cargo",
-          "code": "CX",
-          "source": "awb_prefix"
-        }
-      },
-      "tracking": null,
-      "source": null,
-      "quality": {
-        "confidence": 0.0,
-        "data_complete": false,
-        "missing_fields": ["all"],
+        "missing_fields": ["eta", "etd", "origin", "destination"],
         "warnings": []
+      },
+      "delay": null,
+      "status_change": {
+        "changed": false,
+        "previous_status": "container_picked_up",
+        "previous_status_ua": "Порожній або завантажений контейнер забраний.",
+        "current_status": "container_picked_up",
+        "current_status_ua": "Порожній або завантажений контейнер забраний."
       },
       "errors": [
         {
-          "code": "NOT_FOUND",
-          "message": "Tracking data not found for '080-38652331'",
-          "source": "track_trace_air"
-        },
-        {
-          "code": "SOURCE_UNAVAILABLE",
-          "message": "Source 'carrier_fallback' is temporarily unavailable. Direct carrier integration is not yet implemented. Add a carrier-specific connector to support this number.",
-          "source": "carrier_fallback"
-        }
-      ],
-      "debug": null
-    },
-    {
-      "input": {
-        "id": "internal-009",
-        "number": "MSKU1880987"
-      },
-      "detected": {
-        "type": "sea_container",
-        "normalized_number": "MSKU1880987",
-        "carrier": {
-          "name": "Maersk",
-          "code": "MSKU",
-          "source": "bic_prefix"
-        }
-      },
-      "tracking": null,
-      "source": null,
-      "quality": {
-        "confidence": 0.0,
-        "data_complete": false,
-        "missing_fields": ["all"],
-        "warnings": []
-      },
-      "errors": [
-        {
-          "code": "SOURCE_UNAVAILABLE",
-          "message": "Source 'maersk_api' is temporarily unavailable. Disabled via MAERSK_API_ENABLED=false. Set to true and provide credentials to enable.",
-          "source": "maersk_api"
-        },
-        {
-          "code": "SOURCE_UNAVAILABLE",
-          "message": "Source 'track_trace_container' is temporarily unavailable. Maersk scraping is not supported. Enable MAERSK_API_ENABLED=true for Maersk tracking.",
+          "code": "PARTIAL_DATA",
+          "message": "Data found at 'track_trace_container' but key fields are missing: eta, etd, origin, destination",
           "source": "track_trace_container"
-        },
-        {
-          "code": "SOURCE_UNAVAILABLE",
-          "message": "Source 'carrier_fallback' is temporarily unavailable. Direct carrier integration is not yet implemented.",
-          "source": "carrier_fallback"
         }
-      ],
-      "debug": null
+      ]
     },
     {
       "input": {
-        "id": "invalid-001",
+        "id": "bad-1",
         "number": "NOTANUMBER"
       },
       "detected": {
@@ -276,14 +223,15 @@
         "missing_fields": ["all"],
         "warnings": []
       },
+      "delay": null,
+      "status_change": null,
       "errors": [
         {
           "code": "INVALID_FORMAT",
           "message": "Number 'NOTANUMBER' does not match AWB or container number format",
           "source": ""
         }
-      ],
-      "debug": null
+      ]
     }
   ]
 }

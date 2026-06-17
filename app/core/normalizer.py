@@ -93,11 +93,31 @@ def _get_client() -> AsyncOpenAI | None:
     if not settings.openrouter_api_key:
         return None
     if _openrouter_client is None:
-        _openrouter_client = AsyncOpenAI(
+        raw: AsyncOpenAI = AsyncOpenAI(
             api_key=settings.openrouter_api_key,
             base_url="https://openrouter.ai/api/v1",
         )
+        _openrouter_client = _wrap_with_langsmith(raw)
     return _openrouter_client
+
+
+def _wrap_with_langsmith(client: AsyncOpenAI) -> AsyncOpenAI:
+    if not (settings.langsmith_tracing and settings.langsmith_api_key):
+        return client
+    try:
+        import os
+
+        from langsmith.wrappers import wrap_openai
+
+        os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
+        os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
+        logger.info("LangSmith tracing enabled (project=%s)", settings.langsmith_project)
+        return wrap_openai(client)  # type: ignore[return-value]
+    except ImportError:
+        logger.warning(
+            "LANGSMITH_TRACING=true but langsmith is not installed — run: uv add langsmith"
+        )
+        return client
 
 
 def normalize_status(raw_status: str, shipment_type: str) -> str:
@@ -116,7 +136,9 @@ async def normalize_status_with_ai_fallback(raw_status: str, shipment_type: str)
 
     client = _get_client()
     if client is None:
-        logger.warning("OpenRouter API key not set, cannot use AI fallback for status normalization")
+        logger.warning(
+            "OpenRouter API key not set, cannot use AI fallback for status normalization"
+        )
         return "unknown"
 
     prompt = _build_normalization_prompt(raw_status, shipment_type)
@@ -143,7 +165,7 @@ def _build_normalization_prompt(raw_status: str, shipment_type: str) -> str:
     cargo_kind = "air cargo AWB" if shipment_type == "air_awb" else "sea container"
     return (
         f"Map this {cargo_kind} tracking status to ONE of the normalized values.\n"
-        f"Raw status: \"{raw_status}\"\n"
+        f'Raw status: "{raw_status}"\n'
         f"Valid values: {valid_statuses}\n"
         f"Reply with only the normalized status value, nothing else."
     )

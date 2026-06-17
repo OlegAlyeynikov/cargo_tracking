@@ -14,7 +14,9 @@ class CarrierFallbackConnector(BaseConnector):
     name = "carrier_fallback"
 
     async def fetch(self, number: str, shipment_type: str) -> TrackingData:
-        logger.info("CarrierFallbackConnector: %s — no direct integration available", number)
+        logger.info(
+            "CarrierFallbackConnector: %s — no direct integration available", number
+        )
         raise SourceUnavailableError(
             self.name,
             "Direct carrier integration is not yet implemented. Add a carrier-specific connector to support this number.",

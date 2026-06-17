@@ -14,7 +14,9 @@ def disable_cache(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_invalid_format_returns_error() -> None:
-    request = TrackingRequest(shipments=[ShipmentInput(id="test-001", number="INVALID")])
+    request = TrackingRequest(
+        shipments=[ShipmentInput(id="test-001", number="INVALID")]
+    )
     response = await tracking_service.process_request(request)
     result = response.results[0]
     assert result.detected is not None
@@ -23,10 +25,12 @@ async def test_invalid_format_returns_error() -> None:
 
 
 async def test_multiple_shipments_processed_independently() -> None:
-    request = TrackingRequest(shipments=[
-        ShipmentInput(id="ok", number="MSKU1880987"),
-        ShipmentInput(id="bad", number="NOTANUMBER"),
-    ])
+    request = TrackingRequest(
+        shipments=[
+            ShipmentInput(id="ok", number="MSKU1880987"),
+            ShipmentInput(id="bad", number="NOTANUMBER"),
+        ]
+    )
     response = await tracking_service.process_request(request)
     assert len(response.results) == 2
     bad = next(r for r in response.results if r.input["id"] == "bad")
@@ -42,12 +46,16 @@ async def test_awb_number_detected_correctly() -> None:
 
 
 async def test_captcha_required_error_not_crashes_pipeline() -> None:
-    request = TrackingRequest(shipments=[ShipmentInput(id="air", number="020-26227456")])
+    request = TrackingRequest(
+        shipments=[ShipmentInput(id="air", number="020-26227456")]
+    )
     response = await tracking_service.process_request(request)
     result = response.results[0]
     assert result.detected is not None
     assert result.detected.type == "air_awb"
-    assert any(e.code in ("CAPTCHA_REQUIRED", "SOURCE_UNAVAILABLE") for e in result.errors)
+    assert any(
+        e.code in ("CAPTCHA_REQUIRED", "SOURCE_UNAVAILABLE") for e in result.errors
+    )
 
 
 async def test_maersk_disabled_by_default_returns_source_unavailable() -> None:
@@ -57,7 +65,9 @@ async def test_maersk_disabled_by_default_returns_source_unavailable() -> None:
     assert result.detected is not None
     assert result.detected.type == "sea_container"
     # Maersk connector skipped — falls through to track_trace_container and carrier_fallback
-    assert any(e.code in ("SOURCE_UNAVAILABLE", "CAPTCHA_REQUIRED") for e in result.errors)
+    assert any(
+        e.code in ("SOURCE_UNAVAILABLE", "CAPTCHA_REQUIRED") for e in result.errors
+    )
     # Maersk connector itself should NOT appear as the source since it's disabled
     assert result.source is None
 
@@ -97,10 +107,12 @@ async def test_summary_counts_correct(
 
     monkeypatch.setattr(maersk_api.MaerskAPIConnector, "fetch", mock_fetch)
 
-    request = TrackingRequest(shipments=[
-        ShipmentInput(id="ok", number="MSKU1880987"),
-        ShipmentInput(id="bad", number="BAD"),
-    ])
+    request = TrackingRequest(
+        shipments=[
+            ShipmentInput(id="ok", number="MSKU1880987"),
+            ShipmentInput(id="bad", number="BAD"),
+        ]
+    )
     response = await tracking_service.process_request(request)
     assert response.summary.total == 2
 
@@ -110,8 +122,9 @@ async def test_debug_mode_includes_steps() -> None:
     response = await tracking_service.process_request(request, include_debug=True)
     result = response.results[0]
     assert result.debug is not None
-    assert len(result.debug) > 0
-    assert result.debug[0].step == "detect_type"
+    assert result.debug.shipment_number == "MSKU1880987"
+    assert len(result.debug.steps) > 0
+    assert result.debug.steps[0].step == "detect_type"
 
 
 async def test_maersk_disabled_shows_in_debug() -> None:
@@ -119,9 +132,11 @@ async def test_maersk_disabled_shows_in_debug() -> None:
     response = await tracking_service.process_request(request, include_debug=True)
     result = response.results[0]
     assert result.debug is not None
-    step_names = [s.step for s in result.debug]
+    step_names = [s.step for s in result.debug.steps]
     assert "query_maersk_api" in step_names
-    maersk_step = next(s for s in result.debug if s.step == "query_maersk_api")
+    maersk_step = next(
+        s for s in reversed(result.debug.steps) if s.step == "query_maersk_api"
+    )
     assert maersk_step.status == "failed"
     assert "MAERSK_API_ENABLED" in (maersk_step.error or "")
 
@@ -152,9 +167,70 @@ async def test_klm_awb_returns_login_required() -> None:
 
 
 async def test_airfrance_awb_carrier_identified() -> None:
-    request = TrackingRequest(shipments=[ShipmentInput(id="af2", number="074-12345675")])
+    request = TrackingRequest(
+        shipments=[ShipmentInput(id="af2", number="074-12345675")]
+    )
     response = await tracking_service.process_request(request)
     result = response.results[0]
     assert result.detected is not None
     assert result.detected.carrier is not None
     assert result.detected.carrier.name == "Air France Cargo"
+
+
+# --- Quality block unit tests -----------------------------------------------
+
+
+def test_quality_confidence_range() -> None:
+    from app.models.response import DateBlock, RouteBlock, TrackingData
+    from app.services.tracking_service import _build_quality
+
+    full = TrackingData(
+        current_status="in_transit",
+        dates=DateBlock(eta="2026-06-10", etd="2026-06-01"),
+        route=RouteBlock(origin="Shanghai", destination="Hamburg"),
+        events=[],
+    )
+    # events missing → small deduction
+    q = _build_quality(full, [])
+    assert 0.0 <= q.confidence <= 1.0
+    assert "events" in q.missing_fields
+
+
+def test_quality_partial_route_warning() -> None:
+    from app.models.response import DateBlock, RouteBlock, TrackingData
+    from app.services.tracking_service import _build_quality
+
+    partial = TrackingData(
+        current_status="in_transit",
+        dates=DateBlock(eta="2026-06-10", etd="2026-06-01"),
+        route=RouteBlock(origin="Shanghai", destination=None),
+        events=[],
+    )
+    q = _build_quality(partial, [])
+    assert "partial_route" in q.warnings
+    assert "destination" in q.missing_fields
+
+
+def test_quality_invalid_check_digit_propagates() -> None:
+    from app.core.detector import detect
+    from app.models.response import DateBlock, RouteBlock, TrackingData
+    from app.services.tracking_service import _build_quality
+
+    detected = detect("MSKU1880980")  # wrong check digit
+    td = TrackingData(
+        current_status="in_transit",
+        dates=DateBlock(eta="2026-06-10", etd="2026-06-01"),
+        route=RouteBlock(origin="Shanghai", destination="Hamburg"),
+        events=[],
+    )
+    q = _build_quality(td, [], detected)
+    assert "invalid_check_digit" in q.warnings
+
+
+def test_quality_no_data_returns_zero_confidence() -> None:
+    from app.services.tracking_service import _build_quality
+
+    q = _build_quality(None, [])
+    assert q.confidence == 0.0
+    assert q.data_complete is False
+    assert "all" in q.missing_fields

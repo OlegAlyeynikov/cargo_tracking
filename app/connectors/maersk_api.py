@@ -1,13 +1,26 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 
 from app.config import settings
 from app.connectors.base import BaseConnector
-from app.core.exceptions import NotFoundError, ParsingFailedError, SourceUnavailableError, TimeoutError
+from app.core.date_utils import parse_datetime_info
+from app.core.exceptions import (
+    NotFoundError,
+    ParsingFailedError,
+    SourceUnavailableError,
+    TimeoutError,
+)
 from app.core.normalizer import normalize_status
-from app.models.response import DateBlock, LastEvent, RouteBlock, TrackingData, TrackingEvent
+from app.models.response import (
+    DateBlock,
+    LastEvent,
+    RouteBlock,
+    TrackingData,
+    TrackingEvent,
+    last_event_from,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +43,16 @@ class MaerskAPIConnector(BaseConnector):
             )
 
         url = f"{_BASE}/shipments"
+        self.last_url = f"{url}?trackingNumber={number}"
         headers = {"Consumer-Key": settings.maersk_consumer_key}
 
         try:
-            async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
-                response = await client.get(url, params={"trackingNumber": number}, headers=headers)
+            async with httpx.AsyncClient(
+                timeout=settings.request_timeout_seconds
+            ) as client:
+                response = await client.get(
+                    url, params={"trackingNumber": number}, headers=headers
+                )
         except httpx.TimeoutException:
             raise TimeoutError(self.name)
         except httpx.RequestError as exc:
@@ -43,11 +61,15 @@ class MaerskAPIConnector(BaseConnector):
         if response.status_code == 404:
             raise NotFoundError(number, self.name)
         if response.status_code in (401, 403):
-            raise SourceUnavailableError(self.name, f"HTTP {response.status_code}: authentication required")
+            raise SourceUnavailableError(
+                self.name, f"HTTP {response.status_code}: authentication required"
+            )
         if response.status_code >= 500:
             raise SourceUnavailableError(self.name, f"HTTP {response.status_code}")
         if response.status_code != 200:
-            raise SourceUnavailableError(self.name, f"Unexpected HTTP {response.status_code}")
+            raise SourceUnavailableError(
+                self.name, f"Unexpected HTTP {response.status_code}"
+            )
 
         try:
             data = response.json()
@@ -82,12 +104,7 @@ def _parse_response(data: dict, number: str) -> TrackingData:
 
         if events:
             last = events[-1]
-            last_event = LastEvent(
-                event_code=last.event_code,
-                event_name=last.event_name,
-                location=last.location,
-                datetime=last.datetime,
-            )
+            last_event = last_event_from(last)
             raw_status = last.event_name
             current_status = normalize_status(raw_status or "", "sea_container")
 
@@ -112,18 +129,23 @@ def _parse_event(event: dict) -> TrackingEvent | None:
     activity = event.get("classifierCode", "") or event.get("activity", "")
     description = event.get("description", "")
     event_dt = event.get("eventDateTime") or event.get("estimatedEventDate")
-    location = (event.get("location") or {}).get("cityName") or (event.get("facility") or {}).get("cityName", "")
+    location = (event.get("location") or {}).get("cityName") or (
+        event.get("facility") or {}
+    ).get("cityName", "")
 
     if not description and not activity:
         return None
 
+    iso_dt, tz, tz_conf = parse_datetime_info(str(event_dt) if event_dt else None)
     return TrackingEvent(
         event_code=activity,
         event_name=description,
         normalized_status=normalize_status(description, "sea_container"),
         location=location,
-        datetime=_normalize_datetime(event_dt),
+        datetime=iso_dt,
         raw_datetime=str(event_dt) if event_dt else None,
+        timezone=tz,
+        timezone_confidence=tz_conf,
         raw_text=description,
         vessel=event.get("vesselName"),
         voyage=event.get("voyageNumber"),
@@ -137,8 +159,12 @@ def _parse_route(transport_plans: list) -> RouteBlock:
     legs = plan.get("transportLegs", [])
     if not legs:
         return RouteBlock()
-    origin = (legs[0].get("loadLocation") or {}).get("cityName") or (legs[0].get("departureLocation") or {}).get("cityName")
-    destination = (legs[-1].get("dischargeLocation") or {}).get("cityName") or (legs[-1].get("arrivalLocation") or {}).get("cityName")
+    origin = (legs[0].get("loadLocation") or {}).get("cityName") or (
+        legs[0].get("departureLocation") or {}
+    ).get("cityName")
+    destination = (legs[-1].get("dischargeLocation") or {}).get("cityName") or (
+        legs[-1].get("arrivalLocation") or {}
+    ).get("cityName")
     transit = [
         (leg.get("dischargeLocation") or {}).get("cityName", "")
         for leg in legs[:-1]
@@ -156,8 +182,12 @@ def _parse_dates(transport_plans: list) -> DateBlock:
         return DateBlock()
     first, last = legs[0], legs[-1]
     return DateBlock(
-        etd=_normalize_datetime(first.get("departureDateTime") or first.get("estimatedDepartureDate")),
-        eta=_normalize_datetime(last.get("arrivalDateTime") or last.get("estimatedArrivalDate")),
+        etd=_normalize_datetime(
+            first.get("departureDateTime") or first.get("estimatedDepartureDate")
+        ),
+        eta=_normalize_datetime(
+            last.get("arrivalDateTime") or last.get("estimatedArrivalDate")
+        ),
         actual_departure=_normalize_datetime(first.get("actualDepartureDateTime")),
         actual_arrival=_normalize_datetime(last.get("actualArrivalDateTime")),
     )

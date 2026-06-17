@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from app.models.response import DateBlock, TrackingData
 from app.services.tracking_service import _compute_delay
@@ -100,7 +99,9 @@ def test_15_days_late_critical() -> None:
 def test_delivered_on_time_no_delay() -> None:
     eta = _future(2)
     actual = _future(1)
-    result = _compute_delay(_tracking(eta=eta, actual_arrival=actual, current_status="delivered"))
+    result = _compute_delay(
+        _tracking(eta=eta, actual_arrival=actual, current_status="delivered")
+    )
     assert result is not None
     assert result.delay_detected is False
     assert result.risk_level == "none"
@@ -110,7 +111,9 @@ def test_delivered_late_shows_delay() -> None:
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     eta = _iso(base)
     actual = _iso(base + timedelta(days=5))
-    result = _compute_delay(_tracking(eta=eta, actual_arrival=actual, current_status="delivered"))
+    result = _compute_delay(
+        _tracking(eta=eta, actual_arrival=actual, current_status="delivered")
+    )
     assert result is not None
     assert result.delay_detected is True
     assert result.delay_days == 5
@@ -121,7 +124,9 @@ def test_delivered_early_no_delay() -> None:
     base = datetime(2026, 1, 10, tzinfo=timezone.utc)
     eta = _iso(base)
     actual = _iso(base - timedelta(days=2))
-    result = _compute_delay(_tracking(eta=eta, actual_arrival=actual, current_status="delivered"))
+    result = _compute_delay(
+        _tracking(eta=eta, actual_arrival=actual, current_status="delivered")
+    )
     assert result is not None
     assert result.delay_detected is False
     assert result.delay_days == -2

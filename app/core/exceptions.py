@@ -66,3 +66,12 @@ class ParsingFailedError(TrackingError):
             message=f"Received response from '{source}' but could not parse data. {detail}".strip(),
             source=source,
         )
+
+
+class PartialDataError(TrackingError):
+    def __init__(self, source: str, missing: list[str]) -> None:
+        super().__init__(
+            code="PARTIAL_DATA",
+            message=f"Data found at '{source}' but key fields are missing: {', '.join(missing)}",
+            source=source,
+        )

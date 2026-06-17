@@ -6,6 +6,7 @@ from app.connectors.cosco_connector import CoscoConnector
 from app.connectors.maersk_api import MaerskAPIConnector
 from app.connectors.track_trace_air import TrackTraceAirConnector
 from app.connectors.track_trace_container import TrackTraceContainerConnector
+from app.core.detector import _CONTAINER_OWNERS
 from app.core.exceptions import SourceUnavailableError
 from app.models.response import TrackingData
 
@@ -18,21 +19,20 @@ _MAERSK_PREFIXES = {"MSKU", "MAEU", "MAEI"}
 # COSCO Shipping Lines BIC prefixes
 _COSCO_PREFIXES = {"CAIU", "CBHU", "CCLU", "CXDU", "FCIU"}
 
-# Container leasing companies — they do not operate shipping routes
+# Container leasing companies — they do not operate shipping routes.
+# Names sourced from _CONTAINER_OWNERS in detector.py (single source of truth).
 _LEASING_PREFIXES = {
-    "UETU": "Textainer",
-    "TEXU": "Textainer",
-    "TRHU": "Triton International",
-    "TLLU": "Triton International",
-    "TTNU": "Triton International",
-    "TPHU": "Triton International",
-    "TGHU": "Triton International",
-    "TCKU": "Triton International",
-    "TOLU": "Touax",
-    "CARU": "CAI International",
-    "BSIU": "Beacon Intermodal",
-    "LGHU": "Seaco",
-    "GOLD": "Gold Fields",
+    code
+    for code, name in _CONTAINER_OWNERS.items()
+    if name
+    in {
+        "Triton International",
+        "Textainer",
+        "Touax",
+        "CAI International",
+        "Beacon Intermodal",
+        "Seaco",
+    }
 }
 
 _track_trace_air = TrackTraceAirConnector()
@@ -80,13 +80,12 @@ def get_connectors(number: str, shipment_type: str) -> list[BaseConnector]:
         if owner_code in _COSCO_PREFIXES:
             return [_cosco, _track_trace_container, _carrier_fallback]
 
-        leasing_company = _LEASING_PREFIXES.get(owner_code)
-        if leasing_company and owner_code not in {"TRHU", "TLLU"}:
-            # Leasing companies don't track shipping routes; give an informative error
+        if owner_code in _LEASING_PREFIXES and owner_code not in {"TRHU", "TLLU"}:
+            company_name = _CONTAINER_OWNERS.get(owner_code, "This company")
             return [
                 _DisabledConnector(
                     "leasing_company",
-                    f"{leasing_company} is a container leasing company, not a shipping line. "
+                    f"{company_name} is a container leasing company, not a shipping line. "
                     "Route tracking requires the shipping line's bill of lading number.",
                 ),
                 _carrier_fallback,
