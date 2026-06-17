@@ -1,0 +1,21 @@
+.git
+.env
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Frontend build artifacts — rebuilt inside Docker by node-builder stage
+app/static/ui/
+frontend/node_modules/
+frontend/dist/
+
+# Dev/docs files not needed in image
+tests/
+*.md
+Makefile
+docker-compose.yml
+.env.example

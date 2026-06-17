@@ -1,4 +1,4 @@
-.PHONY: help install dev run test lint format clean docker-up docker-down docker-logs redis env ui-install ui-build ui-dev
+.PHONY: help install dev run test lint format clean docker-up docker-down docker-logs docker-build redis env ui-install ui-build ui-dev
 
 UV := uv
 
@@ -13,10 +13,11 @@ help:
 	@echo "  make test-v       Run tests (verbose)"
 	@echo "  make lint         Run ruff linter"
 	@echo "  make format       Run ruff formatter"
-	@echo "  make redis        Start Redis in Docker (local dev)"
 	@echo "  make docker-up    Start full stack with Docker Compose"
 	@echo "  make docker-down  Stop Docker Compose stack"
 	@echo "  make docker-logs  Tail Docker Compose logs"
+	@echo "  make docker-build Build Docker image without starting"
+	@echo "  make redis        Start a local Redis container for dev"
 	@echo "  make clean        Remove cache and build artifacts"
 	@echo ""
 	@echo "  make ui-install   Install frontend npm dependencies"
@@ -47,9 +48,8 @@ lint:
 format:
 	$(UV) run ruff format app/ tests/
 
-redis:
-	docker run --rm -d --name cargo-redis -p 6379:6379 redis:7-alpine
-	@echo "Redis started on localhost:6379. Stop with: docker stop cargo-redis"
+docker-build:
+	docker compose build
 
 docker-up: env
 	docker compose up --build -d
@@ -59,6 +59,10 @@ docker-down:
 
 docker-logs:
 	docker compose logs -f
+
+redis:
+	docker run --rm -d --name cargo-redis -p 6379:6379 redis:7-alpine
+	@echo "Redis started on localhost:6379. Stop with: docker stop cargo-redis"
 
 ui-install:
 	cd frontend && npm install
